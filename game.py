@@ -7,10 +7,12 @@ pygame.init()
 
 # Размеры окна
 WIDTH, HEIGHT = 600, 700
-GRID_SIZE = 8
-CELL_SIZE = 60
-MARGIN = 10
-TOP_OFFSET = 70
+GRID_SIZE = 6  # Изменено с 8 на 6
+CELL_SIZE = 70  # Можно увеличить ячейки для лучшего вида
+
+# Автоматический расчёт отступа, чтобы поле было по центру
+MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
+TOP_OFFSET = 80  # Отступ сверху, чтобы поле не было прижато к верху
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Uni in a Row")
@@ -101,13 +103,11 @@ class SwapAnimation:
         x, y = self.pos
         color1 = grid[self.r1][self.c1]
         color2 = grid[self.r2][self.c2]
-        # Рисуем первый юнит
         if color1 in sprites:
             sprite = sprites[color1]
             sx = x - CELL_SIZE//2 + (CELL_SIZE - sprite.get_width()) // 2
             sy = y - CELL_SIZE//2 + (CELL_SIZE - sprite.get_height()) // 2
             screen.blit(sprite, (sx, sy))
-        # Рисуем второй юнит (зеркально по диагонали)
         x2 = 2*MARGIN + self.c1*CELL_SIZE + self.c2*CELL_SIZE + CELL_SIZE - x
         y2 = 2*TOP_OFFSET + self.r1*CELL_SIZE + self.r2*CELL_SIZE + CELL_SIZE - y
         if color2 in sprites:
@@ -338,7 +338,6 @@ while running:
 
     # --- ИГРОВАЯ ЛОГИКА (только в PLAYING) ---
     if game_state == PLAYING:
-        # Проверяем, закончились ли анимации
         if not animations:
             matches = find_matches()
             if matches:
@@ -349,13 +348,10 @@ while running:
                     animations.append(DropAnimation(drop_info))
                 score += 1
             elif not any(cell is not None for row in grid for cell in row):
-                # Если поле пустое — заканчиваем игру
                 game_state = GAME_OVER
 
-        # Обновляем анимации
         for anim in animations:
             anim.update()
-        # Удаляем завершённые анимации
         animations = [a for a in animations if not a.finished]
 
     # --- ОТРИСОВКА ---
@@ -368,14 +364,11 @@ while running:
         if background:
             screen.blit(background, (0, 0))
         
-        # Рисуем сетку
         draw_grid()
         
-        # Рисуем анимации поверх сетки
         for anim in animations:
             anim.draw(screen)
         
-        # Счёт
         score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
 
