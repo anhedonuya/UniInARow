@@ -135,12 +135,17 @@ def load_profile():
         try:
             with open(PROFILE_FILE, "r") as f:
                 data = json.load(f)
+                # Добавляем level и xp, если их нет
+                if "level" not in data:
+                    data["level"] = 1
+                if "xp" not in data:
+                    data["xp"] = 0
                 if "player_id" not in data or not data["player_id"]:
                     data["player_id"] = generate_player_id()
                     if is_developer():
                         data["player_id"] = "DEVELOPER"
-                    save_profile(data)
-                    save_player_data(data)
+                save_profile(data)
+                save_player_data(data)
                 return data
         except:
             pass
@@ -361,7 +366,6 @@ def draw_profile_on_menu():
     total_text = small_font.render(f"Всего очков: {profile['total_score']}", True, (150, 150, 150))
     screen.blit(total_text, (WIDTH - 290, 100))
     
-    # Полоска XP
     draw_xp_bar()
 
 def draw_xp_bar():
