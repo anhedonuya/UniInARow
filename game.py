@@ -5,7 +5,7 @@ import json
 import math
 
 pygame.init()
-pygame.mixer.init()  # Инициализация звука
+pygame.mixer.init()
 
 # Размеры окна
 WIDTH, HEIGHT = 600, 700
@@ -45,14 +45,17 @@ music_paths = [
     "sounds/menu_music.wav"
 ]
 music_loaded = False
+music_started = False
+
 for path in music_paths:
     if os.path.exists(path):
         try:
             pygame.mixer.music.load(path)
             music_loaded = True
+            print("🎵 Музыка загружена:", path)
             break
-        except:
-            pass
+        except Exception as e:
+            print("⚠️ Ошибка загрузки музыки:", e)
 
 # --- ЗАГРУЗКА СПРАЙТОВ ---
 def load_sprites():
@@ -353,16 +356,17 @@ def draw_game_over():
 
 # --- УПРАВЛЕНИЕ МУЗЫКОЙ ---
 def play_menu_music():
-    if music_loaded:
-        pygame.mixer.music.play(-1)  # Бесконечный повтор
-
-def stop_music():
-    if music_loaded:
-        pygame.mixer.music.stop()
+    if music_loaded and not pygame.mixer.music.get_busy():
+        pygame.mixer.music.play(-1)
 
 # --- ГЛАВНЫЙ ЦИКЛ ---
 running = True
 while running:
+    # Музыка запускается один раз при старте и играет всегда
+    if music_loaded and not music_started:
+        pygame.mixer.music.play(-1)
+        music_started = True
+    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -378,7 +382,6 @@ while running:
                     selected = None
                     animations = []
                     game_state = PLAYING
-                    stop_music()  # Останавливаем музыку при старте игры
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
                 elif load_btn.collidepoint(pos) and has_save():
@@ -389,7 +392,6 @@ while running:
                         selected = None
                         animations = []
                         game_state = PLAYING
-                        stop_music()
                 elif exit_btn.collidepoint(pos):
                     running = False
             
@@ -401,7 +403,6 @@ while running:
                     selected = None
                     animations = []
                     game_state = PLAYING
-                    stop_music()
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
                 elif exit_btn.collidepoint(pos):
@@ -441,7 +442,6 @@ while running:
                 score += 1
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
-                play_menu_music()  # Включаем музыку на экране окончания
 
         for anim in animations:
             anim.update()
@@ -449,12 +449,8 @@ while running:
 
     # --- ОТРИСОВКА ---
     if game_state == MENU:
-        if not pygame.mixer.music.get_busy() and music_loaded:
-            play_menu_music()  # Запускаем музыку при входе в меню
         draw_menu()
     elif game_state == GAME_OVER:
-        if not pygame.mixer.music.get_busy() and music_loaded:
-            play_menu_music()
         draw_game_over()
     else:
         screen.fill(BLACK)
