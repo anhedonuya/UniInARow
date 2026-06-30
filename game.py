@@ -3,39 +3,100 @@ import random
 import os
 import json
 import math
+import sys
 
 pygame.init()
 pygame.mixer.init()
 
-# Размеры окна
-WIDTH, HEIGHT = 600, 700
-GRID_SIZE = 6
-CELL_SIZE = 70
-MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
-TOP_OFFSET = 80
+# --- НАСТРОЙКИ ПО УМОЛЧАНИЮ ---
+SETTINGS_FILE = "settings.json"
+DEFAULT_SETTINGS = {
+    "fullscreen": False,
+    "music_volume": 0.5,
+    "sound_effects": True
+}
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return DEFAULT_SETTINGS.copy()
+    return DEFAULT_SETTINGS.copy()
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+settings = load_settings()
+
+# --- РАЗМЕРЫ ОКНА ---
+WINDOW_WIDTH, WINDOW_HEIGHT = 600, 700
+fullscreen = settings.get("fullscreen", False)
+
+if fullscreen:
+    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    WIDTH, HEIGHT = screen.get_width(), screen.get_height()
+else:
+    WIDTH, HEIGHT = WINDOW_WIDTH, WINDOW_HEIGHT
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
 pygame.display.set_caption("Uni in a Row")
 clock = pygame.time.Clock()
 
-# Цвета
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GRAY = (40, 40, 40)
-DARK_GRAY = (30, 30, 30)
-GREEN = (0, 200, 0)
-RED = (200, 0, 0)
-BLUE = (0, 100, 255)
+# Пересчитываем размеры для полноэкранного режима
+def recalculate_sizes():
+    global GRID_SIZE, CELL_SIZE, MARGIN, TOP_OFFSET
+    # Для полноэкранного режима делаем поле больше и центрируем
+    if fullscreen:
+        # Минимальный размер ячейки, чтобы поле влезло
+        max_grid_size = min(WIDTH, HEIGHT - 100) // 8
+        CELL_SIZE = min(90, max(50, max_grid_size))
+        GRID_SIZE = 6
+        MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
+        TOP_OFFSET = (HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2 - 50
+    else:
+        CELL_SIZE = 70
+        GRID_SIZE = 6
+        MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
+        TOP_OFFSET = 80
 
-# --- ЗАГРУЗКА ФОНА ---
-background = None
-bg_path = "sprites/background.png"
-if os.path.exists(bg_path):
-    try:
-        bg = pygame.image.load(bg_path).convert()
-        background = pygame.transform.scale(bg, (WIDTH, HEIGHT))
-    except:
-        background = None
+# --- ЗАГРУЗКА ФОНОВ ---
+def load_backgrounds():
+    bg = {}
+    # Основной фон
+    bg_path = "sprites/background.png"
+    if os.path.exists(bg_path):
+        try:
+            bg["normal"] = pygame.image.load(bg_path).convert()
+            bg["normal"] = pygame.transform.scale(bg["normal"], (WIDTH, HEIGHT))
+        except:
+            bg["normal"] = None
+    else:
+        bg["normal"] = None
+    
+    # Полноэкранный фон
+    bg_full_path = "sprites/background_fullscreen.png"
+    if os.path.exists(bg_full_path):
+        try:
+            bg["fullscreen"] = pygame.image.load(bg_full_path).convert()
+            bg["fullscreen"] = pygame.transform.scale(bg["fullscreen"], (WIDTH, HEIGHT))
+        except:
+            bg["fullscreen"] = None
+    else:
+        bg["fullscreen"] = None
+    
+    return bg
+
+backgrounds = load_backgrounds()
+
+def get_current_background():
+    if fullscreen and backgrounds["fullscreen"]:
+        return backgrounds["fullscreen"]
+    elif backgrounds["normal"]:
+        return backgrounds["normal"]
+    return None
 
 # --- ЗАГРУЗКА МУЗЫКИ ---
 music_paths = [
@@ -53,6 +114,7 @@ for path in music_paths:
             pygame.mixer.music.load(path)
             music_loaded = True
             print("🎵 Музыка загружена:", path)
+            pygame.mixer.music.set_volume(settings.get("music_volume", 0.5))
             break
         except Exception as e:
             print("⚠️ Ошибка загрузки музыки:", e)
@@ -117,11 +179,13 @@ small_font = pygame.font.Font(None, 24)
 MENU = 0
 PLAYING = 1
 GAME_OVER = 2
+SETTINGS_MENU = 3
 game_state = MENU
 
 # --- АНИМАЦИИ ---
 animations = []
-error_animations = []  # Список анимаций ошибок (красная вспышка)
+error_animations = []
+drag_start_cell = None
 
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
@@ -225,7 +289,6 @@ class DropAnimation:
                 y = TOP_OFFSET + row * CELL_SIZE + (CELL_SIZE - sprite.get_height()) // 2 + y_offset
                 screen.blit(sprite, (x, y))
 
-# --- НОВАЯ АНИМАЦИЯ ОШИБКИ ---
 class ErrorAnimation:
     def __init__(self, row, col, duration=300):
         self.row = row
@@ -234,7 +297,7 @@ class ErrorAnimation:
         self.duration = duration
         self.finished = False
         self.shake_offset = (0, 0)
-        self.phase = 0  # для тряски
+        self.phase = 0
 
     def update(self):
         if self.finished:
@@ -243,7 +306,6 @@ class ErrorAnimation:
         if t >= 1:
             t = 1
             self.finished = True
-        # Тряска: синусоидальное смещение, затухающее к концу
         intensity = max(0, (1 - t) * 8)
         self.shake_offset = (intensity * math.sin(t * 30), intensity * math.cos(t * 20))
         self.phase = t
@@ -256,18 +318,15 @@ class ErrorAnimation:
         t = (pygame.time.get_ticks() - self.start_time) / self.duration
         if t >= 1:
             t = 1
-        # Красная вспышка с затуханием
         alpha = int(150 * (1 - t))
         flash_surf = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
         flash_surf.fill((255, 0, 0, alpha))
         screen.blit(flash_surf, (x + self.shake_offset[0], y + self.shake_offset[1]))
 
 def add_error_animation(row, col):
-    """Добавляет анимацию ошибки на указанную ячейку"""
     error_animations.append(ErrorAnimation(row, col))
 
 def add_error_animation_pair(r1, c1, r2, c2):
-    """Добавляет анимацию ошибки на две ячейки"""
     add_error_animation(r1, c1)
     add_error_animation(r2, c2)
 
@@ -328,17 +387,6 @@ def swap_cells(r1, c1, r2, c2):
     grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
     return False
 
-def try_swap(r1, c1, r2, c2):
-    """Пытается поменять ячейки, возвращает True если успешно"""
-    if not (0 <= r1 < GRID_SIZE and 0 <= c1 < GRID_SIZE and
-            0 <= r2 < GRID_SIZE and 0 <= c2 < GRID_SIZE):
-        return False
-    if abs(r1-r2) + abs(c1-c2) == 1:
-        if swap_cells(r1, c1, r2, c2):
-            animations.append(SwapAnimation(r1, c1, r2, c2))
-            return True
-    return False
-
 def draw_grid():
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
@@ -396,21 +444,28 @@ def draw_title(text, x, y, size=72):
 
 def draw_menu():
     screen.fill(BLACK)
-    if background:
-        screen.blit(background, (0, 0))
+    bg = get_current_background()
+    if bg:
+        screen.blit(bg, (0, 0))
     
-    draw_title("Uni in a Row", WIDTH//2, 120, 72)
+    draw_title("Uni in a Row", WIDTH//2, 120, 72 if not fullscreen else 96)
     
     btn_width, btn_height = 200, 50
     btn_x = WIDTH//2 - btn_width//2
     
-    new_btn = pygame.Rect(btn_x, 250, btn_width, btn_height)
-    load_btn = pygame.Rect(btn_x, 330, btn_width, btn_height)
-    exit_btn = pygame.Rect(btn_x, 410, btn_width, btn_height)
-    
+    # Смещение кнопок, если есть сохранение
     has_save_flag = has_save()
+    y_start = 250 if not fullscreen else 300
     
-    for btn, color in [(new_btn, GREEN), (load_btn, BLUE if has_save_flag else GRAY), (exit_btn, RED)]:
+    new_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
+    load_btn = pygame.Rect(btn_x, y_start + 80, btn_width, btn_height)
+    settings_btn = pygame.Rect(btn_x, y_start + 160, btn_width, btn_height)
+    exit_btn = pygame.Rect(btn_x, y_start + 240, btn_width, btn_height)
+    
+    for btn, color in [(new_btn, GREEN), 
+                       (load_btn, BLUE if has_save_flag else GRAY),
+                       (settings_btn, (100, 100, 200)),
+                       (exit_btn, RED)]:
         shadow_btn = btn.copy()
         shadow_btn.y += 4
         pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
@@ -418,22 +473,62 @@ def draw_menu():
     
     new_text = font.render("Новая игра", True, WHITE)
     load_text = font.render("Загрузить", True, WHITE)
+    settings_text = font.render("Настройки", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
     
-    screen.blit(new_text, (WIDTH//2 - new_text.get_width()//2, 260))
-    screen.blit(load_text, (WIDTH//2 - load_text.get_width()//2, 340))
-    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 420))
+    screen.blit(new_text, (WIDTH//2 - new_text.get_width()//2, y_start + 12))
+    screen.blit(load_text, (WIDTH//2 - load_text.get_width()//2, y_start + 92))
+    screen.blit(settings_text, (WIDTH//2 - settings_text.get_width()//2, y_start + 172))
+    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, y_start + 252))
     
     if not has_save_flag:
         no_save_text = small_font.render("(нет сохранения)", True, (150,150,150))
-        screen.blit(no_save_text, (WIDTH//2 - no_save_text.get_width()//2, 385))
+        screen.blit(no_save_text, (WIDTH//2 - no_save_text.get_width()//2, y_start + 50))
     
-    return new_btn, load_btn, exit_btn
+    return new_btn, load_btn, settings_btn, exit_btn
+
+def draw_settings_menu():
+    screen.fill(BLACK)
+    bg = get_current_background()
+    if bg:
+        screen.blit(bg, (0, 0))
+    
+    draw_title("Настройки", WIDTH//2, 120, 60)
+    
+    btn_width, btn_height = 250, 50
+    btn_x = WIDTH//2 - btn_width//2
+    y_start = 230 if not fullscreen else 280
+    
+    # Кнопки настроек
+    fs_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
+    vol_btn = pygame.Rect(btn_x, y_start + 70, btn_width, btn_height)
+    back_btn = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
+    
+    # Полноэкранный режим
+    fs_color = GREEN if settings.get("fullscreen", False) else GRAY
+    pygame.draw.rect(screen, fs_color, fs_btn, border_radius=12)
+    fs_text = font.render(f"Полный экран: {'Вкл' if settings.get('fullscreen', False) else 'Выкл'}", True, WHITE)
+    screen.blit(fs_text, (WIDTH//2 - fs_text.get_width()//2, y_start + 12))
+    
+    # Громкость (показываем значение)
+    vol_color = (100, 100, 200)
+    pygame.draw.rect(screen, vol_color, vol_btn, border_radius=12)
+    vol_val = int(settings.get("music_volume", 0.5) * 100)
+    vol_text = font.render(f"Громкость: {vol_val}% (← →)", True, WHITE)
+    screen.blit(vol_text, (WIDTH//2 - vol_text.get_width()//2, y_start + 82))
+    
+    # Назад
+    pygame.draw.rect(screen, RED, back_btn, border_radius=12)
+    back_text = font.render("Назад", True, WHITE)
+    screen.blit(back_text, (WIDTH//2 - back_text.get_width()//2, y_start + 152))
+    
+    return fs_btn, vol_btn, back_btn
 
 def draw_game_over():
     screen.fill(BLACK)
-    if background:
-        screen.blit(background, (0, 0))
+    bg = get_current_background()
+    if bg:
+        screen.blit(bg, (0, 0))
     game_over_text = big_font.render("Игра окончена!", True, RED)
     screen.blit(game_over_text, (WIDTH//2 - game_over_text.get_width()//2, 150))
     
@@ -456,14 +551,28 @@ def draw_game_over():
     
     return restart_btn, exit_btn
 
-# --- УПРАВЛЕНИЕ МУЗЫКОЙ ---
-def play_menu_music():
-    if music_loaded and not pygame.mixer.music.get_busy():
-        pygame.mixer.music.play(-1)
+# --- ОБНОВЛЕНИЕ ЭКРАНА ПРИ ИЗМЕНЕНИИ РАЗМЕРА ---
+def toggle_fullscreen():
+    global fullscreen, screen, WIDTH, HEIGHT, backgrounds
+    fullscreen = not fullscreen
+    settings["fullscreen"] = fullscreen
+    save_settings(settings)
+    
+    if fullscreen:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        WIDTH, HEIGHT = screen.get_width(), screen.get_height()
+    else:
+        WIDTH, HEIGHT = WINDOW_WIDTH, WINDOW_HEIGHT
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    
+    # Перезагружаем фоны под новый размер
+    backgrounds = load_backgrounds()
+    recalculate_sizes()
+    pygame.display.flip()
 
 # --- ГЛАВНЫЙ ЦИКЛ ---
+recalculate_sizes()
 running = True
-drag_start_cell = None
 
 while running:
     if music_loaded and not music_started:
@@ -474,12 +583,24 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         
-        # --- НАЧАЛО СВАЙПА ---
+        # --- КЛАВИАТУРА ---
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F11:
+                toggle_fullscreen()
+            if event.key == pygame.K_ESCAPE:
+                if game_state == SETTINGS_MENU:
+                    game_state = MENU
+                elif game_state == PLAYING:
+                    game_state = MENU
+                    selected = None
+                    drag_start_cell = None
+        
+        # --- МЫШЬ ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
             if game_state == MENU:
-                new_btn, load_btn, exit_btn = draw_menu()
+                new_btn, load_btn, settings_btn, exit_btn = draw_menu()
                 if new_btn.collidepoint(pos):
                     grid = create_grid()
                     score = 0
@@ -498,8 +619,17 @@ while running:
                         animations = []
                         error_animations = []
                         game_state = PLAYING
+                elif settings_btn.collidepoint(pos):
+                    game_state = SETTINGS_MENU
                 elif exit_btn.collidepoint(pos):
                     running = False
+            
+            elif game_state == SETTINGS_MENU:
+                fs_btn, vol_btn, back_btn = draw_settings_menu()
+                if fs_btn.collidepoint(pos):
+                    toggle_fullscreen()
+                elif back_btn.collidepoint(pos):
+                    game_state = MENU
             
             elif game_state == GAME_OVER:
                 restart_btn, exit_btn = draw_game_over()
@@ -516,20 +646,18 @@ while running:
                     running = False
             
             elif game_state == PLAYING:
-                # Кнопка "Сохранить"
                 save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
                 if save_btn.collidepoint(pos):
                     save_game(grid, score)
                     running = False
                     continue
                 
-                # Начинаем свайп
                 cell = get_cell(pos)
                 if cell:
                     drag_start_cell = cell
                     selected = cell
         
-        # --- ДВИЖЕНИЕ МЫШИ (свайп) ---
+        # --- ДВИЖЕНИЕ МЫШИ ---
         if event.type == pygame.MOUSEMOTION and game_state == PLAYING and drag_start_cell is not None:
             pos = pygame.mouse.get_pos()
             current_cell = get_cell(pos)
@@ -542,17 +670,15 @@ while running:
                         selected = None
                         drag_start_cell = None
                     else:
-                        # Ошибка — показываем анимацию на обеих ячейках
                         add_error_animation_pair(r1, c1, r2, c2)
                         selected = None
                         drag_start_cell = None
                 else:
-                    # Не соседние — тоже анимация ошибки
                     add_error_animation_pair(r1, c1, r2, c2)
                     selected = None
                     drag_start_cell = None
         
-        # --- ОТПУСКАНИЕ КНОПКИ (завершение свайпа или клик) ---
+        # --- ОТПУСКАНИЕ КНОПКИ ---
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             if game_state == PLAYING:
                 if drag_start_cell is not None:
@@ -569,7 +695,6 @@ while running:
                         else:
                             add_error_animation_pair(r1, c1, r2, c2)
                     else:
-                        # Если просто кликнули
                         if selected is not None:
                             r1, c1 = selected
                             if current_cell:
@@ -584,7 +709,6 @@ while running:
                             selected = None
                     drag_start_cell = None
                 else:
-                    # Если клик без предварительного выделения
                     pos = pygame.mouse.get_pos()
                     cell = get_cell(pos)
                     if cell:
@@ -618,12 +742,10 @@ while running:
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
 
-        # Обновляем анимации
         for anim in animations:
             anim.update()
         animations = [a for a in animations if not a.finished]
         
-        # Обновляем анимации ошибок
         for anim in error_animations:
             anim.update()
         error_animations = [a for a in error_animations if not a.finished]
@@ -631,16 +753,18 @@ while running:
     # --- ОТРИСОВКА ---
     if game_state == MENU:
         draw_menu()
+    elif game_state == SETTINGS_MENU:
+        draw_settings_menu()
     elif game_state == GAME_OVER:
         draw_game_over()
     else:
         screen.fill(BLACK)
-        if background:
-            screen.blit(background, (0, 0))
+        bg = get_current_background()
+        if bg:
+            screen.blit(bg, (0, 0))
         
         draw_grid()
         
-        # Рисуем анимации ошибок ПОВЕРХ сетки
         for anim in error_animations:
             anim.draw(screen)
         
@@ -654,6 +778,10 @@ while running:
         pygame.draw.rect(screen, BLUE, save_btn, border_radius=8)
         save_text = small_font.render("Сохранить", True, WHITE)
         screen.blit(save_text, (15, HEIGHT - 35))
+        
+        # Подсказка про F11
+        hint_text = small_font.render("F11 — полный экран", True, (100,100,100))
+        screen.blit(hint_text, (WIDTH - hint_text.get_width() - 10, HEIGHT - 30))
 
     pygame.display.flip()
     clock.tick(60)
