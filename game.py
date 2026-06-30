@@ -116,12 +116,10 @@ def save_bans(bans):
         json.dump(bans, f, indent=4)
 
 def is_developer():
-    """Проверяет, является ли текущий пользователь разработчиком по хешу пароля"""
     if os.path.exists("developer.key"):
         try:
             with open("developer.key", "r") as f:
                 content = f.read().strip()
-                # Хеш для пароля: "developer UNIIANAROW пароль очень секретный"
                 if hashlib.sha256(content.encode()).hexdigest() == "a9f8c3e2b1d4567890abcdef1234567890abcdef1234567890abcdef12345678":
                     return True
         except:
@@ -165,7 +163,6 @@ settings = load_settings()
 profile = load_profile()
 bans = load_bans()
 
-# Проверка бана
 if profile["player_id"] in bans or profile["player_name"] in bans:
     print("❌ Вы забанены!")
     pygame.quit()
@@ -298,6 +295,7 @@ def save_game(grid_data, score_val):
     }
     with open(get_save_path(), "w") as f:
         json.dump(data, f)
+    update_profile(score_val)
 
 def load_game():
     path = get_save_path()
@@ -313,11 +311,12 @@ def has_save():
 # --- ПРОФИЛЬ ---
 def update_profile(score):
     global profile
-    profile["total_games"] += 1
-    profile["total_score"] += score
-    if score > profile["best_score"]:
-        profile["best_score"] = score
-    save_profile(profile)
+    if score > 0:
+        profile["total_games"] += 1
+        profile["total_score"] += score
+        if score > profile["best_score"]:
+            profile["best_score"] = score
+        save_profile(profile)
 
 def draw_profile_on_menu():
     bg_surf = pygame.Surface((250, 110), pygame.SRCALPHA)
@@ -360,6 +359,10 @@ game_state = MENU
 animations = []
 error_animations = []
 drag_start_cell = None
+gear_rotation = 0  # для анимации шестерёнки
+gear_open = False  # открыто ли меню
+gear_animating = False
+gear_target_rotation = 0
 
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
@@ -605,6 +608,80 @@ def draw_title(text, x, y, size=72):
     outer_rect = border_rect.inflate(10, 10)
     pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
 
+def draw_gear_button():
+    """Рисует кнопку-шестерёнку в правом нижнем углу"""
+    global gear_rotation, gear_open, gear_animating, gear_target_rotation
+    
+    # Позиция кнопки
+    btn_size = 50
+    btn_x = WIDTH - btn_size - 15
+    btn_y = HEIGHT - btn_size - 15
+    
+    # Плавное вращение
+    if gear_animating:
+        if gear_rotation < gear_target_rotation:
+            gear_rotation += 6
+            if gear_rotation >= gear_target_rotation:
+                gear_rotation = gear_target_rotation
+                gear_animating = False
+        elif gear_rotation > gear_target_rotation:
+            gear_rotation -= 6
+            if gear_rotation <= gear_target_rotation:
+                gear_rotation = gear_target_rotation
+                gear_animating = False
+    
+    # Фон кнопки (круг)
+    pygame.draw.circle(screen, (60, 60, 60), (btn_x + btn_size//2, btn_y + btn_size//2), btn_size//2 + 4)
+    pygame.draw.circle(screen, (40, 40, 40), (btn_x + btn_size//2, btn_y + btn_size//2), btn_size//2 + 2)
+    pygame.draw.circle(screen, (80, 80, 80), (btn_x + btn_size//2, btn_y + btn_size//2), btn_size//2)
+    
+    # Рисуем шестерёнку (упрощённо — круг с зубцами)
+    center_x = btn_x + btn_size//2
+    center_y = btn_y + btn_size//2
+    radius = 18
+    tooth_count = 8
+    tooth_size = 6
+    
+    # Рисуем зубцы
+    for i in range(tooth_count):
+        angle = math.radians(i * 360 / tooth_count + gear_rotation)
+        x1 = center_x + radius * math.cos(angle)
+        y1 = center_y + radius * math.sin(angle)
+        x2 = center_x + (radius + tooth_size) * math.cos(angle)
+        y2 = center_y + (radius + tooth_size) * math.sin(angle)
+        pygame.draw.line(screen, (180, 180, 180), (x1, y1), (x2, y2), 4)
+    
+    # Центральный круг
+    pygame.draw.circle(screen, (180, 180, 180), (center_x, center_y), radius - 4)
+    pygame.draw.circle(screen, (100, 100, 100), (center_x, center_y), radius - 8)
+    
+    # Отверстие в центре
+    pygame.draw.circle(screen, (60, 60, 60), (center_x, center_y), 6)
+    
+    # Если меню открыто — рисуем кнопки
+    if gear_open:
+        # Фон меню
+        menu_bg = pygame.Surface((180, 100), pygame.SRCALPHA)
+        menu_bg.fill((0, 0, 0, 220))
+        screen.blit(menu_bg, (btn_x - 140, btn_y - 110))
+        pygame.draw.rect(screen, WHITE, (btn_x - 140, btn_y - 110, 180, 100), 1, border_radius=8)
+        
+        # Кнопка "Сохранить и выйти"
+        save_btn = pygame.Rect(btn_x - 130, btn_y - 100, 160, 35)
+        pygame.draw.rect(screen, (0, 150, 0), save_btn, border_radius=6)
+        save_text = small_font.render("Сохранить и выйти", True, WHITE)
+        screen.blit(save_text, (save_btn.x + 10, save_btn.y + 8))
+        
+        # Кнопка "Выйти в меню"
+        menu_btn = pygame.Rect(btn_x - 130, btn_y - 55, 160, 35)
+        pygame.draw.rect(screen, (150, 150, 0), menu_btn, border_radius=6)
+        menu_text = small_font.render("Выйти в меню", True, WHITE)
+        screen.blit(menu_text, (menu_btn.x + 25, menu_btn.y + 8))
+        
+        return save_btn, menu_btn
+    
+    return None, None
+
 def draw_update_notification():
     screen.fill(BLACK)
     bg = get_current_background()
@@ -613,7 +690,7 @@ def draw_update_notification():
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 150))
     screen.blit(overlay, (0, 0))
-    box_width, box_height = 400, 250
+    box_width, box_height = 400, 200
     box_x = (WIDTH - box_width) // 2
     box_y = (HEIGHT - box_height) // 2
     pygame.draw.rect(screen, (30, 30, 30), (box_x, box_y, box_width, box_height), border_radius=15)
@@ -621,16 +698,12 @@ def draw_update_notification():
     title = big_font.render("Обновление!", True, YELLOW)
     screen.blit(title, (WIDTH//2 - title.get_width()//2, box_y + 20))
     info_text = font.render("Доступна новая версия игры", True, WHITE)
-    screen.blit(info_text, (WIDTH//2 - info_text.get_width()//2, box_y + 90))
-    update_btn = pygame.Rect(box_x + 50, box_y + 160, 130, 40)
-    skip_btn = pygame.Rect(box_x + 220, box_y + 160, 130, 40)
+    screen.blit(info_text, (WIDTH//2 - info_text.get_width()//2, box_y + 70))
+    update_btn = pygame.Rect(box_x + 100, box_y + 130, 200, 50)
     pygame.draw.rect(screen, GREEN, update_btn, border_radius=10)
-    pygame.draw.rect(screen, RED, skip_btn, border_radius=10)
     update_text = font.render("Обновить", True, WHITE)
-    skip_text = font.render("Позже", True, WHITE)
-    screen.blit(update_text, (update_btn.x + 15, update_btn.y + 8))
-    screen.blit(skip_text, (skip_btn.x + 30, skip_btn.y + 8))
-    return update_btn, skip_btn
+    screen.blit(update_text, (update_btn.x + 55, update_btn.y + 12))
+    return update_btn
 
 def draw_menu():
     screen.fill(BLACK)
@@ -777,6 +850,8 @@ while running:
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
+            if game_state == PLAYING and score > 0:
+                update_profile(score)
             running = False
         
         if event.type == pygame.KEYDOWN:
@@ -786,11 +861,17 @@ while running:
                 if game_state == SETTINGS_MENU:
                     game_state = MENU
                 elif game_state == PLAYING:
+                    if score > 0:
+                        update_profile(score)
                     game_state = MENU
                     selected = None
                     drag_start_cell = None
+                    gear_open = False
+                    gear_target_rotation = 0
+                    gear_rotation = 0
+                    gear_animating = False
                 elif game_state == UPDATE_AVAILABLE:
-                    game_state = MENU
+                    running = False
             if game_state == SETTINGS_MENU:
                 if event.key == pygame.K_LEFT:
                     new_vol = settings.get("music_volume", 0.5) - 0.05
@@ -828,11 +909,9 @@ while running:
             pos = pygame.mouse.get_pos()
             
             if game_state == UPDATE_AVAILABLE:
-                update_btn, skip_btn = draw_update_notification()
+                update_btn = draw_update_notification()
                 if update_btn.collidepoint(pos):
                     run_updater()
-                elif skip_btn.collidepoint(pos):
-                    game_state = MENU
             
             elif game_state == MENU:
                 if profile["player_id"] == "DEVELOPER":
@@ -889,11 +968,41 @@ while running:
                     running = False
             
             elif game_state == PLAYING:
-                save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
-                if save_btn.collidepoint(pos):
-                    save_game(grid, score)
-                    running = False
+                # Проверка клика по кнопке-шестерёнке
+                btn_size = 50
+                btn_x = WIDTH - btn_size - 15
+                btn_y = HEIGHT - btn_size - 15
+                gear_rect = pygame.Rect(btn_x, btn_y, btn_size, btn_size)
+                if gear_rect.collidepoint(pos):
+                    if gear_open:
+                        gear_open = False
+                        gear_target_rotation = 0
+                        gear_animating = True
+                    else:
+                        gear_open = True
+                        gear_target_rotation = 360
+                        gear_animating = True
                     continue
+                
+                # Проверка кликов по кнопкам меню, если оно открыто
+                if gear_open:
+                    save_btn, menu_btn = draw_gear_button()
+                    if save_btn and save_btn.collidepoint(pos):
+                        save_game(grid, score)
+                        running = False
+                        continue
+                    if menu_btn and menu_btn.collidepoint(pos):
+                        if score > 0:
+                            update_profile(score)
+                        game_state = MENU
+                        selected = None
+                        drag_start_cell = None
+                        gear_open = False
+                        gear_target_rotation = 0
+                        gear_rotation = 0
+                        gear_animating = False
+                        continue
+                
                 cell = get_cell(pos)
                 if cell:
                     drag_start_cell = cell
@@ -979,10 +1088,10 @@ while running:
             anim.draw(screen)
         score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
-        save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
-        pygame.draw.rect(screen, BLUE, save_btn, border_radius=8)
-        save_text = small_font.render("Сохранить", True, WHITE)
-        screen.blit(save_text, (15, HEIGHT - 35))
+        
+        # Кнопка-шестерёнка (всегда рисуется поверх всего)
+        draw_gear_button()
+        
         hint_text = small_font.render("F11 — полный экран", True, (100,100,100))
         screen.blit(hint_text, (WIDTH - hint_text.get_width() - 10, HEIGHT - 30))
 
