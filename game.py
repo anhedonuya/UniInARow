@@ -45,17 +45,25 @@ else:
 pygame.display.set_caption("Uni in a Row")
 clock = pygame.time.Clock()
 
+# --- ЦВЕТА ---
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (40, 40, 40)
+DARK_GRAY = (30, 30, 30)
+GREEN = (0, 200, 0)
+RED = (200, 0, 0)
+BLUE = (0, 100, 255)
+
 # --- РАСЧЁТ РАЗМЕРОВ ЯЧЕЙКИ И ПОЛЯ ---
 GRID_SIZE = 6
 
 def recalculate_sizes():
     global CELL_SIZE, MARGIN, TOP_OFFSET
     if fullscreen:
-        # Для полного экрана: максимально возможный размер ячейки
         max_cell_width = (WIDTH - 40) // GRID_SIZE
         max_cell_height = (HEIGHT - 160) // GRID_SIZE
-        CELL_SIZE = min(max_cell_width, max_cell_height, 120)  # Не больше 120 для красоты
-        CELL_SIZE = max(CELL_SIZE, 50)  # Минимум 50, чтобы было видно
+        CELL_SIZE = min(max_cell_width, max_cell_height, 120)
+        CELL_SIZE = max(CELL_SIZE, 50)
         MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
         TOP_OFFSET = (HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2 - 30
     else:
