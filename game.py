@@ -10,10 +10,17 @@ pygame.mixer.init()
 
 # --- НАСТРОЙКИ ПО УМОЛЧАНИЮ ---
 SETTINGS_FILE = "settings.json"
+PROFILE_FILE = "profile.json"
 DEFAULT_SETTINGS = {
     "fullscreen": False,
     "music_volume": 0.5,
     "sound_effects": True
+}
+DEFAULT_PROFILE = {
+    "player_name": "Игрок",
+    "total_games": 0,
+    "total_score": 0,
+    "best_score": 0
 }
 
 def load_settings():
@@ -29,7 +36,21 @@ def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+def load_profile():
+    if os.path.exists(PROFILE_FILE):
+        try:
+            with open(PROFILE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return DEFAULT_PROFILE.copy()
+    return DEFAULT_PROFILE.copy()
+
+def save_profile(profile):
+    with open(PROFILE_FILE, "w") as f:
+        json.dump(profile, f, indent=4)
+
 settings = load_settings()
+profile = load_profile()
 
 # --- РАЗМЕРЫ ОКНА ---
 WINDOW_WIDTH, WINDOW_HEIGHT = 600, 700
@@ -53,6 +74,7 @@ DARK_GRAY = (30, 30, 30)
 GREEN = (0, 200, 0)
 RED = (200, 0, 0)
 BLUE = (0, 100, 255)
+PROFILE_BG = (0, 0, 0, 180)
 
 # --- РАСЧЁТ РАЗМЕРОВ ЯЧЕЙКИ И ПОЛЯ ---
 GRID_SIZE = 6
@@ -147,7 +169,7 @@ def load_sprites():
 sprites = load_sprites()
 colors_list = list(sprites.keys())
 
-# --- ФУНКЦИИ СОХРАНЕНИЯ ---
+# --- ФУНКЦИИ СОХРАНЕНИЯ ИГРЫ ---
 def get_save_path():
     if not os.path.exists("saves"):
         os.makedirs("saves")
@@ -173,6 +195,35 @@ def load_game():
 def has_save():
     return os.path.exists(get_save_path())
 
+# --- ПРОФИЛЬ И СТАТИСТИКА ---
+def update_profile(score):
+    global profile
+    profile["total_games"] += 1
+    profile["total_score"] += score
+    if score > profile["best_score"]:
+        profile["best_score"] = score
+    save_profile(profile)
+
+def draw_profile():
+    """Рисует профиль в левом верхнем углу"""
+    # Полупрозрачный фон
+    bg_surf = pygame.Surface((180, 100), pygame.SRCALPHA)
+    bg_surf.fill((0, 0, 0, 180))
+    screen.blit(bg_surf, (10, 10))
+    
+    # Имя игрока
+    name_text = font.render(profile["player_name"], True, WHITE)
+    screen.blit(name_text, (20, 15))
+    
+    # Статистика
+    stats = f"Игр: {profile['total_games']}  Рекорд: {profile['best_score']}"
+    stats_text = small_font.render(stats, True, (200, 200, 200))
+    screen.blit(stats_text, (20, 45))
+    
+    # Общий счёт
+    total_text = small_font.render(f"Всего очков: {profile['total_score']}", True, (180, 180, 180))
+    screen.blit(total_text, (20, 70))
+
 # --- ИГРОВОЕ ПОЛЕ ---
 def create_grid():
     return [[random.choice(colors_list) for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -182,7 +233,7 @@ selected = None
 score = 0
 font = pygame.font.Font(None, 36)
 big_font = pygame.font.Font(None, 72)
-small_font = pygame.font.Font(None, 24)
+small_font = pygame.font.Font(None, 20)
 
 # --- СОСТОЯНИЯ ---
 MENU = 0
@@ -509,7 +560,8 @@ def draw_settings_menu():
     
     fs_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
     vol_btn = pygame.Rect(btn_x, y_start + 70, btn_width, btn_height)
-    back_btn = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
+    name_btn = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
+    back_btn = pygame.Rect(btn_x, y_start + 210, btn_width, btn_height)
     
     fs_color = GREEN if settings.get("fullscreen", False) else GRAY
     pygame.draw.rect(screen, fs_color, fs_btn, border_radius=12)
@@ -522,11 +574,17 @@ def draw_settings_menu():
     vol_text = font.render(f"Громкость: {vol_val}% (← →)", True, WHITE)
     screen.blit(vol_text, (WIDTH//2 - vol_text.get_width()//2, y_start + 82))
     
+    # Изменение имени
+    name_color = (100, 200, 100)
+    pygame.draw.rect(screen, name_color, name_btn, border_radius=12)
+    name_text = font.render(f"Имя: {profile['player_name']}", True, WHITE)
+    screen.blit(name_text, (WIDTH//2 - name_text.get_width()//2, y_start + 152))
+    
     pygame.draw.rect(screen, RED, back_btn, border_radius=12)
     back_text = font.render("Назад", True, WHITE)
-    screen.blit(back_text, (WIDTH//2 - back_text.get_width()//2, y_start + 152))
+    screen.blit(back_text, (WIDTH//2 - back_text.get_width()//2, y_start + 222))
     
-    return fs_btn, vol_btn, back_btn
+    return fs_btn, vol_btn, name_btn, back_btn
 
 def draw_game_over():
     screen.fill(BLACK)
@@ -538,6 +596,10 @@ def draw_game_over():
     
     score_text = font.render(f"Счёт: {score}", True, WHITE)
     screen.blit(score_text, (WIDTH//2 - score_text.get_width()//2, 250))
+    
+    # Новая статистика
+    best_text = small_font.render(f"Рекорд: {profile['best_score']}  Всего очков: {profile['total_score']}", True, (200,200,200))
+    screen.blit(best_text, (WIDTH//2 - best_text.get_width()//2, 290))
     
     restart_btn = pygame.Rect(WIDTH//2 - 80, 350, 160, 50)
     exit_btn = pygame.Rect(WIDTH//2 - 80, 450, 160, 50)
@@ -555,7 +617,7 @@ def draw_game_over():
     
     return restart_btn, exit_btn
 
-# --- ОБНОВЛЕНИЕ ЭКРАНА ПРИ ИЗМЕНЕНИИ РАЗМЕРА ---
+# --- ОБНОВЛЕНИЕ ЭКРАНА ---
 def toggle_fullscreen():
     global fullscreen, screen, WIDTH, HEIGHT, backgrounds
     fullscreen = not fullscreen
@@ -608,7 +670,6 @@ while running:
                     pygame.mixer.music.set_volume(settings["music_volume"])
                     save_settings(settings)
         
-        # --- ТОЛЬКО СВАЙП (КЛИКИ УБРАНЫ) ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
@@ -638,9 +699,15 @@ while running:
                     running = False
             
             elif game_state == SETTINGS_MENU:
-                fs_btn, vol_btn, back_btn = draw_settings_menu()
+                fs_btn, vol_btn, name_btn, back_btn = draw_settings_menu()
                 if fs_btn.collidepoint(pos):
                     toggle_fullscreen()
+                elif name_btn.collidepoint(pos):
+                    # Простое изменение имени (можно добавить диалог, но для простоты — ввод в консоль)
+                    new_name = input("Введите новое имя игрока: ")
+                    if new_name.strip():
+                        profile["player_name"] = new_name.strip()
+                        save_profile(profile)
                 elif back_btn.collidepoint(pos):
                     game_state = MENU
             
@@ -670,7 +737,6 @@ while running:
                     drag_start_cell = cell
                     selected = cell
         
-        # --- ДВИЖЕНИЕ МЫШИ (СВАЙП) ---
         if event.type == pygame.MOUSEMOTION and game_state == PLAYING and drag_start_cell is not None:
             pos = pygame.mouse.get_pos()
             current_cell = get_cell(pos)
@@ -691,7 +757,6 @@ while running:
                     selected = None
                     drag_start_cell = None
         
-        # --- ОТПУСКАНИЕ КНОПКИ (ЗАВЕРШЕНИЕ СВАЙПА) ---
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             if game_state == PLAYING:
                 if drag_start_cell is not None:
@@ -722,6 +787,8 @@ while running:
                 score += 1
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
+                # Сохраняем статистику при окончании игры
+                update_profile(score)
 
         for anim in animations:
             anim.update()
@@ -752,7 +819,7 @@ while running:
             anim.draw(screen)
         
         score_text = font.render(f"Счёт: {score}", True, WHITE)
-        screen.blit(score_text, (10, 10))
+        screen.blit(score_text, (10, HEIGHT - 35))
         
         save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
         pygame.draw.rect(screen, BLUE, save_btn, border_radius=8)
@@ -761,6 +828,9 @@ while running:
         
         hint_text = small_font.render("F11 — полный экран", True, (100,100,100))
         screen.blit(hint_text, (WIDTH - hint_text.get_width() - 10, HEIGHT - 30))
+        
+        # Профиль — в левом верхнем углу
+        draw_profile()
 
     pygame.display.flip()
     clock.tick(60)
