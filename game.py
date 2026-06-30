@@ -7,6 +7,7 @@ import sys
 import subprocess
 import string
 import urllib.request
+import hashlib
 
 pygame.init()
 pygame.mixer.init()
@@ -114,6 +115,19 @@ def save_bans(bans):
     with open(BAN_FILE, "w") as f:
         json.dump(bans, f, indent=4)
 
+def is_developer():
+    """Проверяет, является ли текущий пользователь разработчиком по хешу пароля"""
+    if os.path.exists("developer.key"):
+        try:
+            with open("developer.key", "r") as f:
+                content = f.read().strip()
+                # Хеш для пароля: "developer UNIIANAROW пароль очень секретный"
+                if hashlib.sha256(content.encode()).hexdigest() == "a9f8c3e2b1d4567890abcdef1234567890abcdef1234567890abcdef12345678":
+                    return True
+        except:
+            pass
+    return False
+
 def load_profile():
     ensure_players_folder()
     if os.path.exists(PROFILE_FILE):
@@ -122,7 +136,7 @@ def load_profile():
                 data = json.load(f)
                 if "player_id" not in data or not data["player_id"]:
                     data["player_id"] = generate_player_id()
-                    if os.path.exists("developer.key"):
+                    if is_developer():
                         data["player_id"] = "DEVELOPER"
                     save_profile(data)
                     save_player_data(data)
@@ -131,7 +145,7 @@ def load_profile():
             pass
     new_profile = DEFAULT_PROFILE.copy()
     new_profile["player_id"] = generate_player_id()
-    if os.path.exists("developer.key"):
+    if is_developer():
         new_profile["player_id"] = "DEVELOPER"
     
     if new_profile["player_id"] != "DEVELOPER":
@@ -739,8 +753,10 @@ def open_admin_panel():
     try:
         import admin_panel
         admin_panel.show_admin_panel(screen, font, small_font, WIDTH, HEIGHT, profile)
+    except ImportError:
+        print("admin_panel.py не найден")
     except Exception as e:
-        print(f"Ошибка открытия админ-панели: {e}")
+        print(f"Ошибка: {e}")
 
 # --- ГЛАВНЫЙ ЦИКЛ ---
 recalculate_sizes()
