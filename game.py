@@ -332,7 +332,6 @@ def check_level_up():
         print(f"🎉 Уровень повышен до {profile['level']}!")
 
 def format_time(seconds):
-    """Форматирует секунды в ЧЧ:ММ:СС"""
     seconds = int(seconds)
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
@@ -353,14 +352,68 @@ def update_profile(score):
         profile['total_score'] += score
         if score > profile['best_score']:
             profile['best_score'] = score
-        
-        # Обновляем общее время
         profile['total_time'] = profile.get('total_time', 0) + session_time
         session_time = 0
-        
         check_level_up()
         save_profile(profile)
         save_player_data(profile)
+
+# --- ФУНКЦИИ ДЛЯ РИСОВАНИЯ ---
+def draw_button(surface, text, rect, color, hover_color, shadow_color, is_hovered, border_radius=12):
+    offset = 0
+    shadow_offset = 4
+    if is_hovered:
+        offset = -3
+        shadow_offset = 6
+    
+    shadow_rect = rect.copy()
+    shadow_rect.y += shadow_offset
+    pygame.draw.rect(surface, shadow_color, shadow_rect, border_radius=border_radius)
+    
+    btn_rect = rect.copy()
+    btn_rect.y += offset
+    current_color = hover_color if is_hovered else color
+    pygame.draw.rect(surface, current_color, btn_rect, border_radius=border_radius)
+    
+    text_surf = font.render(text, True, WHITE)
+    text_rect = text_surf.get_rect(center=btn_rect.center)
+    if is_hovered:
+        text_rect.y -= 1
+    surface.blit(text_surf, text_rect)
+    return btn_rect
+
+def draw_title(text, x, y, size=72):
+    font_big = pygame.font.Font(None, size)
+    text_surf = font_big.render(text, True, WHITE)
+    text_rect = text_surf.get_rect(center=(x, y))
+    
+    shadow_surf = font_big.render(text, True, (30, 30, 30))
+    shadow_rect = text_rect.copy()
+    shadow_rect.x += 4
+    shadow_rect.y += 4
+    screen.blit(shadow_surf, shadow_rect)
+    
+    shadow2_surf = font_big.render(text, True, (60, 60, 60))
+    shadow2_rect = text_rect.copy()
+    shadow2_rect.x += 2
+    shadow2_rect.y += 2
+    screen.blit(shadow2_surf, shadow2_rect)
+    
+    colors = [(255, 200, 50), (255, 180, 30), (200, 150, 50)]
+    for i, col in enumerate(colors):
+        surf = font_big.render(text, True, col)
+        rect = text_rect.copy()
+        rect.x += i * 1
+        rect.y += i * 1
+        screen.blit(surf, rect)
+    
+    highlight_surf = font_big.render(text, True, (255, 240, 200))
+    screen.blit(highlight_surf, text_rect)
+    
+    border_rect = text_rect.inflate(30, 20)
+    pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
+    outer_rect = border_rect.inflate(10, 10)
+    pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
 
 def draw_xp_bar():
     xp_needed = profile['level'] * 50 + 20
@@ -377,7 +430,6 @@ def draw_xp_bar():
     screen.blit(percent_text, (bar_x + bar_width + 10, bar_y - 2))
 
 def draw_stats_window():
-    """Рисует окно со статистикой поверх меню"""
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 200))
     screen.blit(overlay, (0, 0))
@@ -412,36 +464,8 @@ def draw_stats_window():
     pygame.draw.rect(screen, RED, close_btn, border_radius=8)
     close_text = font.render("Закрыть", True, WHITE)
     screen.blit(close_text, (close_btn.x + 25, close_btn.y + 6))
-    
     return close_btn
 
-# --- ФУНКЦИЯ ДЛЯ РИСОВАНИЯ КНОПКИ С АНИМАЦИЕЙ ---
-def draw_button(surface, text, rect, color, hover_color, shadow_color, is_hovered, border_radius=12):
-    """Рисует кнопку с анимацией наведения (подъём и тень)"""
-    offset = 0
-    shadow_offset = 4
-    if is_hovered:
-        offset = -3
-        shadow_offset = 6
-    
-    shadow_rect = rect.copy()
-    shadow_rect.y += shadow_offset
-    pygame.draw.rect(surface, shadow_color, shadow_rect, border_radius=border_radius)
-    
-    btn_rect = rect.copy()
-    btn_rect.y += offset
-    current_color = hover_color if is_hovered else color
-    pygame.draw.rect(surface, current_color, btn_rect, border_radius=border_radius)
-    
-    text_surf = font.render(text, True, WHITE)
-    text_rect = text_surf.get_rect(center=btn_rect.center)
-    if is_hovered:
-        text_rect.y -= 1
-    surface.blit(text_surf, text_rect)
-    
-    return btn_rect
-
-# --- ФУНКЦИИ ДЛЯ ПОДТВЕРЖДЕНИЯ ВЫХОДА ---
 def draw_exit_confirm():
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 180))
@@ -465,114 +489,7 @@ def draw_exit_confirm():
     pygame.draw.rect(screen, GREEN, no_btn, border_radius=10)
     no_text = font.render("Нет", True, WHITE)
     screen.blit(no_text, (no_btn.x + 40, no_btn.y + 8))
-    
     return yes_btn, no_btn
-
-# --- ОСТАЛЬНЫЕ ФУНКЦИИ ---
-def get_cell(pos):
-    x, y = pos
-    if x < MARGIN or y < TOP_OFFSET:
-        return None
-    col = (x - MARGIN) // CELL_SIZE
-    row = (y - TOP_OFFSET) // CELL_SIZE
-    if 0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE:
-        return (row, col)
-    return None
-
-def find_matches():
-    matches = set()
-    for row in range(GRID_SIZE):
-        for col in range(GRID_SIZE - 2):
-            if grid[row][col] == grid[row][col+1] == grid[row][col+2]:
-                matches.add((row, col))
-                matches.add((row, col+1))
-                matches.add((row, col+2))
-    for row in range(GRID_SIZE - 2):
-        for col in range(GRID_SIZE):
-            if grid[row][col] == grid[row+1][col] == grid[row+2][col]:
-                matches.add((row, col))
-                matches.add((row+1, col))
-                matches.add((row+2, col))
-    return matches
-
-def remove_matches(matches):
-    for row, col in matches:
-        grid[row][col] = None
-
-def drop_down():
-    drop_info = []
-    for col in range(GRID_SIZE):
-        for row in range(GRID_SIZE-1, -1, -1):
-            if grid[row][col] is None:
-                for r in range(row-1, -1, -1):
-                    if grid[r][col] is not None:
-                        grid[row][col] = grid[r][col]
-                        grid[r][col] = None
-                        drop_info.append((row, col, grid[row][col], r))
-                        break
-    for col in range(GRID_SIZE):
-        for row in range(GRID_SIZE):
-            if grid[row][col] is None:
-                new_color = random.choice(colors_list)
-                grid[row][col] = new_color
-                drop_info.append((row, col, new_color, -1))
-    return drop_info
-
-def swap_cells(r1, c1, r2, c2):
-    grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
-    if find_matches():
-        return True
-    grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
-    return False
-
-def draw_grid():
-    for row in range(GRID_SIZE):
-        for col in range(GRID_SIZE):
-            x = MARGIN + col * CELL_SIZE
-            y = TOP_OFFSET + row * CELL_SIZE
-            pygame.draw.rect(screen, DARK_GRAY, (x-2, y-2, CELL_SIZE+4, CELL_SIZE+4))
-            pygame.draw.rect(screen, GRAY, (x, y, CELL_SIZE, CELL_SIZE))
-            color = grid[row][col]
-            if color in sprites:
-                sprite = sprites[color]
-                sx = x + (CELL_SIZE - sprite.get_width()) // 2
-                sy = y + (CELL_SIZE - sprite.get_height()) // 2
-                screen.blit(sprite, (sx, sy))
-            if selected and selected == (row, col):
-                pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
-
-def draw_title(text, x, y, size=72):
-    font_big = pygame.font.Font(None, size)
-    text_surf = font_big.render(text, True, WHITE)
-    text_rect = text_surf.get_rect(center=(x, y))
-    
-    shadow_surf = font_big.render(text, True, (30, 30, 30))
-    shadow_rect = text_rect.copy()
-    shadow_rect.x += 4
-    shadow_rect.y += 4
-    screen.blit(shadow_surf, shadow_rect)
-    
-    shadow2_surf = font_big.render(text, True, (60, 60, 60))
-    shadow2_rect = text_rect.copy()
-    shadow2_rect.x += 2
-    shadow2_rect.y += 2
-    screen.blit(shadow2_surf, shadow2_rect)
-    
-    colors = [(255, 200, 50), (255, 180, 30), (200, 150, 50)]
-    for i, col in enumerate(colors):
-        surf = font_big.render(text, True, col)
-        rect = text_rect.copy()
-        rect.x += i * 1
-        rect.y += i * 1
-        screen.blit(surf, rect)
-    
-    highlight_surf = font_big.render(text, True, (255, 240, 200))
-    screen.blit(highlight_surf, text_rect)
-    
-    border_rect = text_rect.inflate(30, 20)
-    pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
-    outer_rect = border_rect.inflate(10, 10)
-    pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
 
 def draw_update_notification():
     screen.fill(BLACK)
@@ -655,7 +572,6 @@ def draw_gear_button():
         screen.blit(menu_text, (menu_btn.x + 25, menu_btn.y + 8))
         
         return save_btn, menu_btn
-    
     return None, None
 
 def draw_menu():
@@ -794,43 +710,83 @@ def open_admin_panel():
     except Exception as e:
         print(f"Ошибка: {e}")
 
-# --- ГЛАВНЫЙ ЦИКЛ ---
-recalculate_sizes()
-has_update, local_ver, remote_ver = check_updates()
-if has_update:
-    game_state = UPDATE_AVAILABLE
+# --- ИГРОВОЕ ПОЛЕ ---
+def create_grid():
+    return [[random.choice(colors_list) for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
 
-running = True
-input_active = False
-input_text = ""
-error_message = ""
-error_timer = 0
+def get_cell(pos):
+    x, y = pos
+    if x < MARGIN or y < TOP_OFFSET:
+        return None
+    col = (x - MARGIN) // CELL_SIZE
+    row = (y - TOP_OFFSET) // CELL_SIZE
+    if 0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE:
+        return (row, col)
+    return None
 
-# --- ВРЕМЯ В ИГРЕ ---
-game_start_time = time.time()
-session_time = 0
-statistics_open = False
-profile_btn_rect = None
+def find_matches():
+    matches = set()
+    for row in range(GRID_SIZE):
+        for col in range(GRID_SIZE - 2):
+            if grid[row][col] == grid[row][col+1] == grid[row][col+2]:
+                matches.add((row, col))
+                matches.add((row, col+1))
+                matches.add((row, col+2))
+    for row in range(GRID_SIZE - 2):
+        for col in range(GRID_SIZE):
+            if grid[row][col] == grid[row+1][col] == grid[row+2][col]:
+                matches.add((row, col))
+                matches.add((row+1, col))
+                matches.add((row+2, col))
+    return matches
 
-# --- СОСТОЯНИЯ ---
-MENU = 0
-PLAYING = 1
-GAME_OVER = 2
-SETTINGS_MENU = 3
-UPDATE_AVAILABLE = 4
-EXIT_CONFIRM = 5
-STATS = 6
-game_state = MENU
+def remove_matches(matches):
+    for row, col in matches:
+        grid[row][col] = None
+
+def drop_down():
+    drop_info = []
+    for col in range(GRID_SIZE):
+        for row in range(GRID_SIZE-1, -1, -1):
+            if grid[row][col] is None:
+                for r in range(row-1, -1, -1):
+                    if grid[r][col] is not None:
+                        grid[row][col] = grid[r][col]
+                        grid[r][col] = None
+                        drop_info.append((row, col, grid[row][col], r))
+                        break
+    for col in range(GRID_SIZE):
+        for row in range(GRID_SIZE):
+            if grid[row][col] is None:
+                new_color = random.choice(colors_list)
+                grid[row][col] = new_color
+                drop_info.append((row, col, new_color, -1))
+    return drop_info
+
+def swap_cells(r1, c1, r2, c2):
+    grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
+    if find_matches():
+        return True
+    grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
+    return False
+
+def draw_grid():
+    for row in range(GRID_SIZE):
+        for col in range(GRID_SIZE):
+            x = MARGIN + col * CELL_SIZE
+            y = TOP_OFFSET + row * CELL_SIZE
+            pygame.draw.rect(screen, DARK_GRAY, (x-2, y-2, CELL_SIZE+4, CELL_SIZE+4))
+            pygame.draw.rect(screen, GRAY, (x, y, CELL_SIZE, CELL_SIZE))
+            color = grid[row][col]
+            if color in sprites:
+                sprite = sprites[color]
+                sx = x + (CELL_SIZE - sprite.get_width()) // 2
+                sy = y + (CELL_SIZE - sprite.get_height()) // 2
+                screen.blit(sprite, (sx, sy))
+            if selected and selected == (row, col):
+                pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
 
 # --- АНИМАЦИИ ---
-animations = []
-error_animations = []
-drag_start_cell = None
-gear_rotation = 0
-gear_open = False
-gear_animating = False
-gear_target_rotation = 0
-
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
         self.r1, self.c1 = r1, c1
@@ -974,19 +930,51 @@ def add_error_animation_pair(r1, c1, r2, c2):
     add_error_animation(r1, c1)
     add_error_animation(r2, c2)
 
+# --- ГЛАВНЫЙ ЦИКЛ ---
 font = pygame.font.Font(None, 36)
 big_font = pygame.font.Font(None, 72)
 small_font = pygame.font.Font(None, 20)
+
 grid = create_grid()
 selected = None
 score = 0
+
+animations = []
+error_animations = []
+drag_start_cell = None
+gear_rotation = 0
+gear_open = False
+gear_animating = False
+gear_target_rotation = 0
+
+MENU = 0
+PLAYING = 1
+GAME_OVER = 2
+SETTINGS_MENU = 3
+UPDATE_AVAILABLE = 4
+EXIT_CONFIRM = 5
+STATS = 6
+game_state = MENU
+
+recalculate_sizes()
+has_update, local_ver, remote_ver = check_updates()
+if has_update:
+    game_state = UPDATE_AVAILABLE
+
+running = True
+input_active = False
+input_text = ""
+error_message = ""
+error_timer = 0
+
+session_time = 0
+profile_btn_rect = None
 
 while running:
     if music_loaded and not music_started:
         pygame.mixer.music.play(-1)
         music_started = True
     
-    # Обновляем сессионное время
     if game_state == PLAYING:
         session_time += clock.get_time() / 1000.0
     
