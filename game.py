@@ -121,6 +121,7 @@ game_state = MENU
 
 # --- АНИМАЦИИ ---
 animations = []
+error_animations = []  # Список анимаций ошибок (красная вспышка)
 
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
@@ -224,6 +225,52 @@ class DropAnimation:
                 y = TOP_OFFSET + row * CELL_SIZE + (CELL_SIZE - sprite.get_height()) // 2 + y_offset
                 screen.blit(sprite, (x, y))
 
+# --- НОВАЯ АНИМАЦИЯ ОШИБКИ ---
+class ErrorAnimation:
+    def __init__(self, row, col, duration=300):
+        self.row = row
+        self.col = col
+        self.start_time = pygame.time.get_ticks()
+        self.duration = duration
+        self.finished = False
+        self.shake_offset = (0, 0)
+        self.phase = 0  # для тряски
+
+    def update(self):
+        if self.finished:
+            return
+        t = (pygame.time.get_ticks() - self.start_time) / self.duration
+        if t >= 1:
+            t = 1
+            self.finished = True
+        # Тряска: синусоидальное смещение, затухающее к концу
+        intensity = max(0, (1 - t) * 8)
+        self.shake_offset = (intensity * math.sin(t * 30), intensity * math.cos(t * 20))
+        self.phase = t
+
+    def draw(self, screen):
+        if self.finished:
+            return
+        x = MARGIN + self.col * CELL_SIZE
+        y = TOP_OFFSET + self.row * CELL_SIZE
+        t = (pygame.time.get_ticks() - self.start_time) / self.duration
+        if t >= 1:
+            t = 1
+        # Красная вспышка с затуханием
+        alpha = int(150 * (1 - t))
+        flash_surf = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
+        flash_surf.fill((255, 0, 0, alpha))
+        screen.blit(flash_surf, (x + self.shake_offset[0], y + self.shake_offset[1]))
+
+def add_error_animation(row, col):
+    """Добавляет анимацию ошибки на указанную ячейку"""
+    error_animations.append(ErrorAnimation(row, col))
+
+def add_error_animation_pair(r1, c1, r2, c2):
+    """Добавляет анимацию ошибки на две ячейки"""
+    add_error_animation(r1, c1)
+    add_error_animation(r2, c2)
+
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_cell(pos):
     x, y = pos
@@ -281,6 +328,17 @@ def swap_cells(r1, c1, r2, c2):
     grid[r1][c1], grid[r2][c2] = grid[r2][c2], grid[r1][c1]
     return False
 
+def try_swap(r1, c1, r2, c2):
+    """Пытается поменять ячейки, возвращает True если успешно"""
+    if not (0 <= r1 < GRID_SIZE and 0 <= c1 < GRID_SIZE and
+            0 <= r2 < GRID_SIZE and 0 <= c2 < GRID_SIZE):
+        return False
+    if abs(r1-r2) + abs(c1-c2) == 1:
+        if swap_cells(r1, c1, r2, c2):
+            animations.append(SwapAnimation(r1, c1, r2, c2))
+            return True
+    return False
+
 def draw_grid():
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
@@ -298,35 +356,29 @@ def draw_grid():
                 pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
 
 def draw_title(text, x, y, size=72):
-    """Рисует оформленный заголовок с тенью и градиентом"""
     font_big = pygame.font.Font(None, size)
     
-    # Создаём поверхность для текста
     text_surf = font_big.render(text, True, WHITE)
     text_rect = text_surf.get_rect(center=(x, y))
     
-    # Рисуем тень (смещение вправо-вниз)
     shadow_surf = font_big.render(text, True, (30, 30, 30))
     shadow_rect = text_rect.copy()
     shadow_rect.x += 4
     shadow_rect.y += 4
     screen.blit(shadow_surf, shadow_rect)
     
-    # Рисуем второй слой тени (для объёма)
     shadow2_surf = font_big.render(text, True, (60, 60, 60))
     shadow2_rect = text_rect.copy()
     shadow2_rect.x += 2
     shadow2_rect.y += 2
     screen.blit(shadow2_surf, shadow2_rect)
     
-    # Создаём градиентный эффект: рисуем текст несколько раз разными цветами
     colors = [
-        (255, 200, 50),   # золотой
-        (255, 180, 30),   # тёмно-золотой
-        (200, 150, 50),   # бронзовый
+        (255, 200, 50),
+        (255, 180, 30),
+        (200, 150, 50),
     ]
     
-    # Основной текст с небольшими смещениями для градиента
     for i, col in enumerate(colors):
         surf = font_big.render(text, True, col)
         rect = text_rect.copy()
@@ -334,15 +386,11 @@ def draw_title(text, x, y, size=72):
         rect.y += i * 1
         screen.blit(surf, rect)
     
-    # Яркий верхний слой (блик)
     highlight_surf = font_big.render(text, True, (255, 240, 200))
     screen.blit(highlight_surf, text_rect)
     
-    # Рамка вокруг текста
     border_rect = text_rect.inflate(30, 20)
     pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
-    
-    # Внешняя тонкая рамка
     outer_rect = border_rect.inflate(10, 10)
     pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
 
@@ -351,7 +399,6 @@ def draw_menu():
     if background:
         screen.blit(background, (0, 0))
     
-    # Оформленное название игры
     draw_title("Uni in a Row", WIDTH//2, 120, 72)
     
     btn_width, btn_height = 200, 50
@@ -363,14 +410,10 @@ def draw_menu():
     
     has_save_flag = has_save()
     
-    # Кнопки с закруглёнными углами
     for btn, color in [(new_btn, GREEN), (load_btn, BLUE if has_save_flag else GRAY), (exit_btn, RED)]:
-        pygame.draw.rect(screen, color, btn, border_radius=12)
-        # Тень для кнопок
         shadow_btn = btn.copy()
         shadow_btn.y += 4
         pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
-        # Основная кнопка поверх тени
         pygame.draw.rect(screen, color, btn, border_radius=12)
     
     new_text = font.render("Новая игра", True, WHITE)
@@ -420,6 +463,8 @@ def play_menu_music():
 
 # --- ГЛАВНЫЙ ЦИКЛ ---
 running = True
+drag_start_cell = None
+
 while running:
     if music_loaded and not music_started:
         pygame.mixer.music.play(-1)
@@ -429,6 +474,7 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         
+        # --- НАЧАЛО СВАЙПА ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
@@ -439,6 +485,7 @@ while running:
                     score = 0
                     selected = None
                     animations = []
+                    error_animations = []
                     game_state = PLAYING
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
@@ -449,6 +496,7 @@ while running:
                         score = data["score"]
                         selected = None
                         animations = []
+                        error_animations = []
                         game_state = PLAYING
                 elif exit_btn.collidepoint(pos):
                     running = False
@@ -460,6 +508,7 @@ while running:
                     score = 0
                     selected = None
                     animations = []
+                    error_animations = []
                     game_state = PLAYING
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
@@ -467,28 +516,97 @@ while running:
                     running = False
             
             elif game_state == PLAYING:
+                # Кнопка "Сохранить"
                 save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
                 if save_btn.collidepoint(pos):
                     save_game(grid, score)
                     running = False
                     continue
                 
+                # Начинаем свайп
                 cell = get_cell(pos)
                 if cell:
-                    if selected is None:
-                        selected = cell
+                    drag_start_cell = cell
+                    selected = cell
+        
+        # --- ДВИЖЕНИЕ МЫШИ (свайп) ---
+        if event.type == pygame.MOUSEMOTION and game_state == PLAYING and drag_start_cell is not None:
+            pos = pygame.mouse.get_pos()
+            current_cell = get_cell(pos)
+            if current_cell and current_cell != drag_start_cell:
+                r1, c1 = drag_start_cell
+                r2, c2 = current_cell
+                if abs(r1-r2) + abs(c1-c2) == 1:
+                    if swap_cells(r1, c1, r2, c2):
+                        animations.append(SwapAnimation(r1, c1, r2, c2))
+                        selected = None
+                        drag_start_cell = None
                     else:
-                        r1, c1 = selected
-                        r2, c2 = cell
+                        # Ошибка — показываем анимацию на обеих ячейках
+                        add_error_animation_pair(r1, c1, r2, c2)
+                        selected = None
+                        drag_start_cell = None
+                else:
+                    # Не соседние — тоже анимация ошибки
+                    add_error_animation_pair(r1, c1, r2, c2)
+                    selected = None
+                    drag_start_cell = None
+        
+        # --- ОТПУСКАНИЕ КНОПКИ (завершение свайпа или клик) ---
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if game_state == PLAYING:
+                if drag_start_cell is not None:
+                    pos = pygame.mouse.get_pos()
+                    current_cell = get_cell(pos)
+                    if current_cell and current_cell != drag_start_cell:
+                        r1, c1 = drag_start_cell
+                        r2, c2 = current_cell
                         if abs(r1-r2) + abs(c1-c2) == 1:
-                            if swap_cells(r1, c1, r2, c2):
+                            if not swap_cells(r1, c1, r2, c2):
+                                add_error_animation_pair(r1, c1, r2, c2)
+                            else:
                                 animations.append(SwapAnimation(r1, c1, r2, c2))
-                            selected = None
                         else:
+                            add_error_animation_pair(r1, c1, r2, c2)
+                    else:
+                        # Если просто кликнули
+                        if selected is not None:
+                            r1, c1 = selected
+                            if current_cell:
+                                r2, c2 = current_cell
+                                if abs(r1-r2) + abs(c1-c2) == 1:
+                                    if swap_cells(r1, c1, r2, c2):
+                                        animations.append(SwapAnimation(r1, c1, r2, c2))
+                                    else:
+                                        add_error_animation_pair(r1, c1, r2, c2)
+                                else:
+                                    add_error_animation_pair(r1, c1, r2, c2)
+                            selected = None
+                    drag_start_cell = None
+                else:
+                    # Если клик без предварительного выделения
+                    pos = pygame.mouse.get_pos()
+                    cell = get_cell(pos)
+                    if cell:
+                        if selected is None:
                             selected = cell
+                        else:
+                            r1, c1 = selected
+                            r2, c2 = cell
+                            if abs(r1-r2) + abs(c1-c2) == 1:
+                                if swap_cells(r1, c1, r2, c2):
+                                    animations.append(SwapAnimation(r1, c1, r2, c2))
+                                    selected = None
+                                else:
+                                    add_error_animation_pair(r1, c1, r2, c2)
+                                    selected = None
+                            else:
+                                add_error_animation_pair(r1, c1, r2, c2)
+                                selected = None
 
+    # --- ИГРОВАЯ ЛОГИКА ---
     if game_state == PLAYING:
-        if not animations:
+        if not animations and not error_animations:
             matches = find_matches()
             if matches:
                 animations.append(RemoveAnimation(matches))
@@ -500,10 +618,17 @@ while running:
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
 
+        # Обновляем анимации
         for anim in animations:
             anim.update()
         animations = [a for a in animations if not a.finished]
+        
+        # Обновляем анимации ошибок
+        for anim in error_animations:
+            anim.update()
+        error_animations = [a for a in error_animations if not a.finished]
 
+    # --- ОТРИСОВКА ---
     if game_state == MENU:
         draw_menu()
     elif game_state == GAME_OVER:
@@ -514,6 +639,10 @@ while running:
             screen.blit(background, (0, 0))
         
         draw_grid()
+        
+        # Рисуем анимации ошибок ПОВЕРХ сетки
+        for anim in error_animations:
+            anim.draw(screen)
         
         for anim in animations:
             anim.draw(screen)
