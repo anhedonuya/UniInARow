@@ -135,7 +135,6 @@ def load_profile():
         try:
             with open(PROFILE_FILE, "r") as f:
                 data = json.load(f)
-                # Добавляем level и xp, если их нет
                 if "level" not in data:
                     data["level"] = 1
                 if "xp" not in data:
@@ -318,11 +317,9 @@ def has_save():
 
 # --- ПРОФИЛЬ И УРОВНИ ---
 def calculate_xp(score):
-    """Рассчитывает XP за игру."""
     return score * 2 + 10
 
 def check_level_up():
-    """Проверяет повышение уровня."""
     global profile
     xp_needed = profile['level'] * 50 + 20
     while profile['xp'] >= xp_needed:
@@ -369,7 +366,6 @@ def draw_profile_on_menu():
     draw_xp_bar()
 
 def draw_xp_bar():
-    """Рисует полоску прогресса XP в профиле."""
     xp_needed = profile['level'] * 50 + 20
     progress = min(profile['xp'] / xp_needed, 1.0)
     bar_width = 200
@@ -400,6 +396,7 @@ PLAYING = 1
 GAME_OVER = 2
 SETTINGS_MENU = 3
 UPDATE_AVAILABLE = 4
+EXIT_CONFIRM = 5
 game_state = MENU
 
 # --- АНИМАЦИИ ---
@@ -410,6 +407,12 @@ gear_rotation = 0
 gear_open = False
 gear_animating = False
 gear_target_rotation = 0
+confirm_exit = False
+
+# --- АНИМАЦИЯ НАВЕДЕНИЯ НА КНОПКИ ---
+hovered_button = None
+button_animation_offset = 0
+button_target_offset = 0
 
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
@@ -554,7 +557,64 @@ def add_error_animation_pair(r1, c1, r2, c2):
     add_error_animation(r1, c1)
     add_error_animation(r2, c2)
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# --- ФУНКЦИИ ДЛЯ ПОДТВЕРЖДЕНИЯ ВЫХОДА ---
+def draw_exit_confirm():
+    """Рисует диалог подтверждения выхода"""
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))
+    screen.blit(overlay, (0, 0))
+    
+    box_width, box_height = 350, 150
+    box_x = (WIDTH - box_width) // 2
+    box_y = (HEIGHT - box_height) // 2
+    pygame.draw.rect(screen, (40, 40, 40), (box_x, box_y, box_width, box_height), border_radius=15)
+    pygame.draw.rect(screen, WHITE, (box_x, box_y, box_width, box_height), 2, border_radius=15)
+    
+    text = font.render("Вы уверены, что хотите выйти?", True, WHITE)
+    screen.blit(text, (WIDTH//2 - text.get_width()//2, box_y + 25))
+    
+    yes_btn = pygame.Rect(box_x + 30, box_y + 80, 120, 40)
+    pygame.draw.rect(screen, RED, yes_btn, border_radius=10)
+    yes_text = font.render("Да", True, WHITE)
+    screen.blit(yes_text, (yes_btn.x + 45, yes_btn.y + 8))
+    
+    no_btn = pygame.Rect(box_x + box_width - 150, box_y + 80, 120, 40)
+    pygame.draw.rect(screen, GREEN, no_btn, border_radius=10)
+    no_text = font.render("Нет", True, WHITE)
+    screen.blit(no_text, (no_btn.x + 40, no_btn.y + 8))
+    
+    return yes_btn, no_btn
+
+# --- ФУНКЦИЯ ДЛЯ РИСОВАНИЯ КНОПКИ С АНИМАЦИЕЙ ---
+def draw_button(surface, text, rect, color, hover_color, shadow_color, is_hovered, border_radius=12):
+    """Рисует кнопку с анимацией наведения (подъём и тень)"""
+    offset = 0
+    shadow_offset = 4
+    if is_hovered:
+        offset = -3  # поднимаем кнопку вверх при наведении
+        shadow_offset = 6  # тень становится больше
+    
+    # Рисуем тень
+    shadow_rect = rect.copy()
+    shadow_rect.y += shadow_offset
+    pygame.draw.rect(surface, shadow_color, shadow_rect, border_radius=border_radius)
+    
+    # Рисуем саму кнопку
+    btn_rect = rect.copy()
+    btn_rect.y += offset
+    current_color = hover_color if is_hovered else color
+    pygame.draw.rect(surface, current_color, btn_rect, border_radius=border_radius)
+    
+    # Рисуем текст
+    text_surf = font.render(text, True, WHITE)
+    text_rect = text_surf.get_rect(center=btn_rect.center)
+    if is_hovered:
+        text_rect.y -= 1  # чуть поднимаем текст вместе с кнопкой
+    surface.blit(text_surf, text_rect)
+    
+    return btn_rect
+
+# --- ОСТАЛЬНЫЕ ФУНКЦИИ ---
 def get_cell(pos):
     x, y = pos
     if x < MARGIN or y < TOP_OFFSET:
@@ -631,16 +691,20 @@ def draw_title(text, x, y, size=72):
     font_big = pygame.font.Font(None, size)
     text_surf = font_big.render(text, True, WHITE)
     text_rect = text_surf.get_rect(center=(x, y))
+    
+    # Тень для названия
     shadow_surf = font_big.render(text, True, (30, 30, 30))
     shadow_rect = text_rect.copy()
     shadow_rect.x += 4
     shadow_rect.y += 4
     screen.blit(shadow_surf, shadow_rect)
+    
     shadow2_surf = font_big.render(text, True, (60, 60, 60))
     shadow2_rect = text_rect.copy()
     shadow2_rect.x += 2
     shadow2_rect.y += 2
     screen.blit(shadow2_surf, shadow2_rect)
+    
     colors = [(255, 200, 50), (255, 180, 30), (200, 150, 50)]
     for i, col in enumerate(colors):
         surf = font_big.render(text, True, col)
@@ -648,8 +712,11 @@ def draw_title(text, x, y, size=72):
         rect.x += i * 1
         rect.y += i * 1
         screen.blit(surf, rect)
+    
     highlight_surf = font_big.render(text, True, (255, 240, 200))
     screen.blit(highlight_surf, text_rect)
+    
+    # Рамка с тенью
     border_rect = text_rect.inflate(30, 20)
     pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
     outer_rect = border_rect.inflate(10, 10)
@@ -679,7 +746,6 @@ def draw_update_notification():
     return update_btn
 
 def draw_gear_button():
-    """Рисует кнопку-шестерёнку в правом нижнем углу"""
     global gear_rotation, gear_open, gear_animating, gear_target_rotation
     
     btn_size = 50
@@ -741,43 +807,55 @@ def draw_gear_button():
     return None, None
 
 def draw_menu():
+    global hovered_button, button_animation_offset, button_target_offset
     screen.fill(BLACK)
     bg = get_current_background()
     if bg:
         screen.blit(bg, (0, 0))
+    
     draw_title("Uni in a Row", WIDTH//2, 120, 72 if not fullscreen else 96)
+    
     btn_width, btn_height = 200, 50
     btn_x = WIDTH//2 - btn_width//2
     has_save_flag = has_save()
     y_start = 250 if not fullscreen else 300
-    new_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
-    load_btn = pygame.Rect(btn_x, y_start + 80, btn_width, btn_height)
-    settings_btn = pygame.Rect(btn_x, y_start + 160, btn_width, btn_height)
-    exit_btn = pygame.Rect(btn_x, y_start + 240, btn_width, btn_height)
-    for btn, color in [(new_btn, GREEN), (load_btn, BLUE if has_save_flag else GRAY), (settings_btn, (100, 100, 200)), (exit_btn, RED)]:
-        shadow_btn = btn.copy()
-        shadow_btn.y += 4
-        pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
-        pygame.draw.rect(screen, color, btn, border_radius=12)
-    new_text = font.render("Новая игра", True, WHITE)
-    load_text = font.render("Загрузить", True, WHITE)
-    settings_text = font.render("Настройки", True, WHITE)
-    exit_text = font.render("Выход", True, WHITE)
-    screen.blit(new_text, (WIDTH//2 - new_text.get_width()//2, y_start + 12))
-    screen.blit(load_text, (WIDTH//2 - load_text.get_width()//2, y_start + 92))
-    screen.blit(settings_text, (WIDTH//2 - settings_text.get_width()//2, y_start + 172))
-    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, y_start + 252))
-    if not has_save_flag:
-        no_save_text = small_font.render("(нет сохранения)", True, (150,150,150))
-        screen.blit(no_save_text, (WIDTH//2 - no_save_text.get_width()//2, y_start + 50))
-    draw_profile_on_menu()
+    
+    # Получаем позицию мыши
+    mouse_pos = pygame.mouse.get_pos()
+    
+    # Создаём кнопки
+    btn_rects = {}
+    new_rect = pygame.Rect(btn_x, y_start, btn_width, btn_height)
+    load_rect = pygame.Rect(btn_x, y_start + 80, btn_width, btn_height)
+    settings_rect = pygame.Rect(btn_x, y_start + 160, btn_width, btn_height)
+    exit_rect = pygame.Rect(btn_x, y_start + 240, btn_width, btn_height)
+    
+    # Проверяем наведение
+    new_hover = new_rect.collidepoint(mouse_pos)
+    load_hover = load_rect.collidepoint(mouse_pos) and has_save_flag
+    settings_hover = settings_rect.collidepoint(mouse_pos)
+    exit_hover = exit_rect.collidepoint(mouse_pos)
+    
+    # Рисуем кнопки с анимацией
+    draw_button(screen, "Новая игра", new_rect, GREEN, (0, 230, 0), (0, 100, 0), new_hover)
+    draw_button(screen, "Загрузить", load_rect, BLUE if has_save_flag else GRAY, (0, 130, 255) if has_save_flag else GRAY, (0, 50, 150) if has_save_flag else (30, 30, 30), load_hover)
+    draw_button(screen, "Настройки", settings_rect, (100, 100, 200), (130, 130, 230), (50, 50, 100), settings_hover)
+    draw_button(screen, "Выход", exit_rect, RED, (230, 0, 0), (100, 0, 0), exit_hover)
+    
+    # Кнопка "Админ панель" для разработчика
+    admin_btn = None
     if profile["player_id"] == "DEVELOPER":
-        admin_btn = pygame.Rect(WIDTH - 170, 130, 150, 30)
-        pygame.draw.rect(screen, (100, 0, 100), admin_btn, border_radius=8)
-        admin_text = font.render("Админ панель", True, WHITE)
-        screen.blit(admin_text, (WIDTH - 160, 135))
-        return new_btn, load_btn, settings_btn, exit_btn, admin_btn
-    return new_btn, load_btn, settings_btn, exit_btn
+        admin_rect = pygame.Rect(WIDTH - 170, 130, 150, 30)
+        admin_hover = admin_rect.collidepoint(mouse_pos)
+        draw_button(screen, "Админ панель", admin_rect, (100, 0, 100), (130, 0, 130), (50, 0, 50), admin_hover, border_radius=8)
+        admin_btn = admin_rect
+    
+    draw_profile_on_menu()
+    
+    # Возвращаем кнопки для обработки кликов
+    if profile["player_id"] == "DEVELOPER":
+        return new_rect, load_rect, settings_rect, exit_rect, admin_btn
+    return new_rect, load_rect, settings_rect, exit_rect
 
 def draw_settings_menu():
     screen.fill(BLACK)
@@ -785,30 +863,34 @@ def draw_settings_menu():
     if bg:
         screen.blit(bg, (0, 0))
     draw_title("Настройки", WIDTH//2, 120, 60)
+    
     btn_width, btn_height = 250, 50
     btn_x = WIDTH//2 - btn_width//2
     y_start = 230 if not fullscreen else 280
-    fs_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
-    vol_btn = pygame.Rect(btn_x, y_start + 70, btn_width, btn_height)
-    name_btn = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
-    back_btn = pygame.Rect(btn_x, y_start + 210, btn_width, btn_height)
+    
+    mouse_pos = pygame.mouse.get_pos()
+    
+    fs_rect = pygame.Rect(btn_x, y_start, btn_width, btn_height)
+    vol_rect = pygame.Rect(btn_x, y_start + 70, btn_width, btn_height)
+    name_rect = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
+    back_rect = pygame.Rect(btn_x, y_start + 210, btn_width, btn_height)
+    
+    fs_hover = fs_rect.collidepoint(mouse_pos)
+    vol_hover = vol_rect.collidepoint(mouse_pos)
+    name_hover = name_rect.collidepoint(mouse_pos)
+    back_hover = back_rect.collidepoint(mouse_pos)
+    
     fs_color = GREEN if settings.get("fullscreen", False) else GRAY
-    pygame.draw.rect(screen, fs_color, fs_btn, border_radius=12)
-    fs_text = font.render(f"Полный экран: {'Вкл' if settings.get('fullscreen', False) else 'Выкл'}", True, WHITE)
-    screen.blit(fs_text, (WIDTH//2 - fs_text.get_width()//2, y_start + 12))
-    vol_color = (100, 100, 200)
-    pygame.draw.rect(screen, vol_color, vol_btn, border_radius=12)
+    fs_hover_color = (0, 230, 0) if settings.get("fullscreen", False) else (80, 80, 80)
+    draw_button(screen, f"Полный экран: {'Вкл' if settings.get('fullscreen', False) else 'Выкл'}", fs_rect, fs_color, fs_hover_color, (0, 100, 0) if settings.get("fullscreen", False) else (30, 30, 30), fs_hover)
+    
     vol_val = int(settings.get("music_volume", 0.5) * 100)
-    vol_text = font.render(f"Громкость: {vol_val}% (← →)", True, WHITE)
-    screen.blit(vol_text, (WIDTH//2 - vol_text.get_width()//2, y_start + 82))
-    name_color = (100, 200, 100)
-    pygame.draw.rect(screen, name_color, name_btn, border_radius=12)
-    name_text = font.render(f"Имя: {profile['player_name']}", True, WHITE)
-    screen.blit(name_text, (WIDTH//2 - name_text.get_width()//2, y_start + 152))
-    pygame.draw.rect(screen, RED, back_btn, border_radius=12)
-    back_text = font.render("Назад", True, WHITE)
-    screen.blit(back_text, (WIDTH//2 - back_text.get_width()//2, y_start + 222))
-    return fs_btn, vol_btn, name_btn, back_btn
+    draw_button(screen, f"Громкость: {vol_val}% (← →)", vol_rect, (100, 100, 200), (130, 130, 230), (50, 50, 100), vol_hover)
+    
+    draw_button(screen, f"Имя: {profile['player_name']}", name_rect, (100, 200, 100), (130, 230, 130), (50, 100, 50), name_hover)
+    draw_button(screen, "Назад", back_rect, RED, (230, 0, 0), (100, 0, 0), back_hover)
+    
+    return fs_rect, vol_rect, name_rect, back_rect
 
 def draw_game_over():
     screen.fill(BLACK)
@@ -821,18 +903,19 @@ def draw_game_over():
     screen.blit(score_text, (WIDTH//2 - score_text.get_width()//2, 250))
     best_text = small_font.render(f"Рекорд: {profile['best_score']}  Всего очков: {profile['total_score']}", True, (200,200,200))
     screen.blit(best_text, (WIDTH//2 - best_text.get_width()//2, 290))
-    restart_btn = pygame.Rect(WIDTH//2 - 80, 350, 160, 50)
-    exit_btn = pygame.Rect(WIDTH//2 - 80, 450, 160, 50)
-    for btn, color in [(restart_btn, GREEN), (exit_btn, RED)]:
-        shadow_btn = btn.copy()
-        shadow_btn.y += 4
-        pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
-        pygame.draw.rect(screen, color, btn, border_radius=12)
-    restart_text = font.render("Новая игра", True, WHITE)
-    exit_text = font.render("Выход", True, WHITE)
-    screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, 360))
-    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 460))
-    return restart_btn, exit_btn
+    
+    mouse_pos = pygame.mouse.get_pos()
+    
+    restart_rect = pygame.Rect(WIDTH//2 - 80, 350, 160, 50)
+    exit_rect = pygame.Rect(WIDTH//2 - 80, 450, 160, 50)
+    
+    restart_hover = restart_rect.collidepoint(mouse_pos)
+    exit_hover = exit_rect.collidepoint(mouse_pos)
+    
+    draw_button(screen, "Новая игра", restart_rect, GREEN, (0, 230, 0), (0, 100, 0), restart_hover)
+    draw_button(screen, "Выход", exit_rect, RED, (230, 0, 0), (100, 0, 0), exit_hover)
+    
+    return restart_rect, exit_rect
 
 def toggle_fullscreen():
     global fullscreen, screen, WIDTH, HEIGHT, backgrounds
@@ -907,6 +990,8 @@ while running:
                     gear_animating = False
                 elif game_state == UPDATE_AVAILABLE:
                     running = False
+                elif game_state == EXIT_CONFIRM:
+                    game_state = PLAYING
             if game_state == SETTINGS_MENU:
                 if event.key == pygame.K_LEFT:
                     new_vol = settings.get("music_volume", 0.5) - 0.05
@@ -951,10 +1036,11 @@ while running:
             elif game_state == MENU:
                 if profile["player_id"] == "DEVELOPER":
                     new_btn, load_btn, settings_btn, exit_btn, admin_btn = draw_menu()
-                    if admin_btn.collidepoint(pos):
+                    if admin_btn and admin_btn.collidepoint(pos):
                         open_admin_panel()
                 else:
                     new_btn, load_btn, settings_btn, exit_btn = draw_menu()
+                
                 if new_btn.collidepoint(pos):
                     grid = create_grid()
                     score = 0
@@ -976,7 +1062,14 @@ while running:
                 elif settings_btn.collidepoint(pos):
                     game_state = SETTINGS_MENU
                 elif exit_btn.collidepoint(pos):
+                    game_state = EXIT_CONFIRM
+            
+            elif game_state == EXIT_CONFIRM:
+                yes_btn, no_btn = draw_exit_confirm()
+                if yes_btn.collidepoint(pos):
                     running = False
+                elif no_btn.collidepoint(pos):
+                    game_state = MENU
             
             elif game_state == SETTINGS_MENU:
                 fs_btn, vol_btn, name_btn, back_btn = draw_settings_menu()
@@ -1000,7 +1093,7 @@ while running:
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
                 elif exit_btn.collidepoint(pos):
-                    running = False
+                    game_state = EXIT_CONFIRM
             
             elif game_state == PLAYING:
                 btn_size = 50
@@ -1109,6 +1202,8 @@ while running:
         draw_game_over()
     elif game_state == UPDATE_AVAILABLE:
         draw_update_notification()
+    elif game_state == EXIT_CONFIRM:
+        draw_exit_confirm()
     else:
         screen.fill(BLACK)
         bg = get_current_background()
