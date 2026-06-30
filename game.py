@@ -1,18 +1,17 @@
 import pygame
 import random
 import os
+import json
 import math
 
 pygame.init()
 
 # Размеры окна
 WIDTH, HEIGHT = 600, 700
-GRID_SIZE = 6  # Изменено с 8 на 6
-CELL_SIZE = 70  # Можно увеличить ячейки для лучшего вида
-
-# Автоматический расчёт отступа, чтобы поле было по центру
+GRID_SIZE = 6
+CELL_SIZE = 70
 MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
-TOP_OFFSET = 80  # Отступ сверху, чтобы поле не было прижато к верху
+TOP_OFFSET = 80
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Uni in a Row")
@@ -25,6 +24,7 @@ GRAY = (40, 40, 40)
 DARK_GRAY = (30, 30, 30)
 GREEN = (0, 200, 0)
 RED = (200, 0, 0)
+BLUE = (0, 100, 255)
 
 # --- ЗАГРУЗКА ФОНА ---
 background = None
@@ -55,6 +55,32 @@ def load_sprites():
 sprites = load_sprites()
 colors_list = list(sprites.keys())
 
+# --- ФУНКЦИИ СОХРАНЕНИЯ ---
+def get_save_path():
+    if not os.path.exists("saves"):
+        os.makedirs("saves")
+    return "saves/save.dat"
+
+def save_game(grid_data, score_val):
+    data = {
+        "grid": grid_data,
+        "score": score_val,
+        "version": 1
+    }
+    with open(get_save_path(), "w") as f:
+        json.dump(data, f)
+
+def load_game():
+    path = get_save_path()
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        data = json.load(f)
+    return data
+
+def has_save():
+    return os.path.exists(get_save_path())
+
 # --- ИГРОВОЕ ПОЛЕ ---
 def create_grid():
     return [[random.choice(colors_list) for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -64,6 +90,7 @@ selected = None
 score = 0
 font = pygame.font.Font(None, 36)
 big_font = pygame.font.Font(None, 72)
+small_font = pygame.font.Font(None, 24)
 
 # --- СОСТОЯНИЯ ---
 MENU = 0
@@ -74,6 +101,8 @@ game_state = MENU
 # --- АНИМАЦИИ ---
 animations = []
 
+# Классы анимаций (Swap, Remove, Drop) — те же, что и раньше, но я их оставлю кратко для экономии места.
+# Вставьте их сюда, они не изменились.
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
         self.r1, self.c1 = r1, c1
@@ -254,20 +283,36 @@ def draw_menu():
     if background:
         screen.blit(background, (0, 0))
     title = big_font.render("Uni in a Row", True, WHITE)
-    screen.blit(title, (WIDTH//2 - title.get_width()//2, 150))
+    screen.blit(title, (WIDTH//2 - title.get_width()//2, 100))
     
-    start_btn = pygame.Rect(WIDTH//2 - 80, 300, 160, 50)
-    exit_btn = pygame.Rect(WIDTH//2 - 80, 400, 160, 50)
+    # Три кнопки меню
+    btn_width, btn_height = 200, 50
+    btn_x = WIDTH//2 - btn_width//2
     
-    pygame.draw.rect(screen, GREEN, start_btn)
+    new_btn = pygame.Rect(btn_x, 250, btn_width, btn_height)
+    load_btn = pygame.Rect(btn_x, 330, btn_width, btn_height)
+    exit_btn = pygame.Rect(btn_x, 410, btn_width, btn_height)
+    
+    # Состояние кнопки загрузки
+    has_save_flag = has_save()
+    
+    pygame.draw.rect(screen, GREEN, new_btn)
+    pygame.draw.rect(screen, BLUE if has_save_flag else GRAY, load_btn)
     pygame.draw.rect(screen, RED, exit_btn)
     
-    start_text = font.render("Старт", True, WHITE)
+    new_text = font.render("Новая игра", True, WHITE)
+    load_text = font.render("Загрузить", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
-    screen.blit(start_text, (WIDTH//2 - start_text.get_width()//2, 310))
-    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 410))
     
-    return start_btn, exit_btn
+    screen.blit(new_text, (WIDTH//2 - new_text.get_width()//2, 260))
+    screen.blit(load_text, (WIDTH//2 - load_text.get_width()//2, 340))
+    screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 420))
+    
+    if not has_save_flag:
+        no_save_text = small_font.render("(нет сохранения)", True, (150,150,150))
+        screen.blit(no_save_text, (WIDTH//2 - no_save_text.get_width()//2, 385))
+    
+    return new_btn, load_btn, exit_btn
 
 def draw_game_over():
     screen.fill(BLACK)
@@ -285,7 +330,7 @@ def draw_game_over():
     pygame.draw.rect(screen, GREEN, restart_btn)
     pygame.draw.rect(screen, RED, exit_btn)
     
-    restart_text = font.render("Старт", True, WHITE)
+    restart_text = font.render("Новая игра", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
     screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, 360))
     screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 460))
@@ -301,27 +346,53 @@ while running:
         
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
+            
+            # --- МЕНЮ ---
             if game_state == MENU:
-                start_btn, exit_btn = draw_menu()
-                if start_btn.collidepoint(pos):
-                    game_state = PLAYING
+                new_btn, load_btn, exit_btn = draw_menu()
+                if new_btn.collidepoint(pos):
                     grid = create_grid()
                     score = 0
                     selected = None
                     animations = []
+                    game_state = PLAYING
+                    # Удаляем старый сейв при старте новой игры
+                    if os.path.exists(get_save_path()):
+                        os.remove(get_save_path())
+                elif load_btn.collidepoint(pos) and has_save():
+                    data = load_game()
+                    if data:
+                        grid = data["grid"]
+                        score = data["score"]
+                        selected = None
+                        animations = []
+                        game_state = PLAYING
                 elif exit_btn.collidepoint(pos):
                     running = False
+            
+            # --- КОНЕЦ ИГРЫ ---
             elif game_state == GAME_OVER:
                 restart_btn, exit_btn = draw_game_over()
                 if restart_btn.collidepoint(pos):
-                    game_state = PLAYING
                     grid = create_grid()
                     score = 0
                     selected = None
                     animations = []
+                    game_state = PLAYING
+                    if os.path.exists(get_save_path()):
+                        os.remove(get_save_path())
                 elif exit_btn.collidepoint(pos):
                     running = False
+            
+            # --- ИГРА ---
             elif game_state == PLAYING:
+                # Кнопка "Сохранить и выйти" (в левом нижнем углу)
+                save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
+                if save_btn.collidepoint(pos):
+                    save_game(grid, score)
+                    running = False
+                    continue
+                
                 cell = get_cell(pos)
                 if cell:
                     if selected is None:
@@ -369,8 +440,15 @@ while running:
         for anim in animations:
             anim.draw(screen)
         
+        # Счёт
         score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
+        
+        # Кнопка "Сохранить и выйти"
+        save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
+        pygame.draw.rect(screen, BLUE, save_btn)
+        save_text = small_font.render("Сохранить", True, WHITE)
+        screen.blit(save_text, (15, HEIGHT - 35))
 
     pygame.display.flip()
     clock.tick(60)
