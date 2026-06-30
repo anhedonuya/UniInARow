@@ -5,7 +5,6 @@ import urllib.request
 import subprocess
 import shutil
 
-# --- КОНФИГ ---
 REPO_OWNER = "anhedonuya"
 REPO_NAME = "UniInARow"
 FILES_TO_UPDATE = ["game.py", "version.txt"]
@@ -49,6 +48,21 @@ def update_game():
     print("✅ Обновление завершено!")
     return True
 
+def restart_game():
+    """Перезапускает игру без консоли"""
+    try:
+        # Пытаемся найти pythonw.exe
+        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if os.path.exists(pythonw):
+            subprocess.Popen([pythonw, "game.py"], creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            # Если pythonw нет — запускаем через python
+            subprocess.Popen([sys.executable, "game.py"], creationflags=subprocess.CREATE_NO_WINDOW)
+    except Exception:
+        # Запасной вариант через run.bat
+        subprocess.Popen(["run.bat"], shell=True)
+    sys.exit(0)
+
 def main():
     local = get_local_version()
     remote = get_remote_version()
@@ -61,8 +75,7 @@ def main():
         print(f"📦 Доступно обновление: {local} → {remote}")
         if update_game():
             print("🔄 Перезапуск игры...")
-            subprocess.Popen([sys.executable, "game.py"])
-            sys.exit(0)
+            restart_game()
         else:
             print("❌ Ошибка обновления")
             sys.exit(1)
