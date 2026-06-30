@@ -596,7 +596,19 @@ while running:
                     game_state = MENU
                     selected = None
                     drag_start_cell = None
+            if game_state == SETTINGS_MENU:
+                if event.key == pygame.K_LEFT:
+                    new_vol = settings.get("music_volume", 0.5) - 0.05
+                    settings["music_volume"] = max(0.0, new_vol)
+                    pygame.mixer.music.set_volume(settings["music_volume"])
+                    save_settings(settings)
+                elif event.key == pygame.K_RIGHT:
+                    new_vol = settings.get("music_volume", 0.5) + 0.05
+                    settings["music_volume"] = min(1.0, new_vol)
+                    pygame.mixer.music.set_volume(settings["music_volume"])
+                    save_settings(settings)
         
+        # --- ТОЛЬКО СВАЙП (КЛИКИ УБРАНЫ) ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
@@ -658,6 +670,7 @@ while running:
                     drag_start_cell = cell
                     selected = cell
         
+        # --- ДВИЖЕНИЕ МЫШИ (СВАЙП) ---
         if event.type == pygame.MOUSEMOTION and game_state == PLAYING and drag_start_cell is not None:
             pos = pygame.mouse.get_pos()
             current_cell = get_cell(pos)
@@ -678,6 +691,7 @@ while running:
                     selected = None
                     drag_start_cell = None
         
+        # --- ОТПУСКАНИЕ КНОПКИ (ЗАВЕРШЕНИЕ СВАЙПА) ---
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             if game_state == PLAYING:
                 if drag_start_cell is not None:
@@ -693,39 +707,8 @@ while running:
                                 animations.append(SwapAnimation(r1, c1, r2, c2))
                         else:
                             add_error_animation_pair(r1, c1, r2, c2)
-                    else:
-                        if selected is not None:
-                            r1, c1 = selected
-                            if current_cell:
-                                r2, c2 = current_cell
-                                if abs(r1-r2) + abs(c1-c2) == 1:
-                                    if swap_cells(r1, c1, r2, c2):
-                                        animations.append(SwapAnimation(r1, c1, r2, c2))
-                                    else:
-                                        add_error_animation_pair(r1, c1, r2, c2)
-                                else:
-                                    add_error_animation_pair(r1, c1, r2, c2)
-                            selected = None
                     drag_start_cell = None
-                else:
-                    pos = pygame.mouse.get_pos()
-                    cell = get_cell(pos)
-                    if cell:
-                        if selected is None:
-                            selected = cell
-                        else:
-                            r1, c1 = selected
-                            r2, c2 = cell
-                            if abs(r1-r2) + abs(c1-c2) == 1:
-                                if swap_cells(r1, c1, r2, c2):
-                                    animations.append(SwapAnimation(r1, c1, r2, c2))
-                                    selected = None
-                                else:
-                                    add_error_animation_pair(r1, c1, r2, c2)
-                                    selected = None
-                            else:
-                                add_error_animation_pair(r1, c1, r2, c2)
-                                selected = None
+                    selected = None
 
     if game_state == PLAYING:
         if not animations and not error_animations:
