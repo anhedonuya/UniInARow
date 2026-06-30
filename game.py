@@ -5,6 +5,7 @@ import json
 import math
 
 pygame.init()
+pygame.mixer.init()  # Инициализация звука
 
 # Размеры окна
 WIDTH, HEIGHT = 600, 700
@@ -35,6 +36,23 @@ if os.path.exists(bg_path):
         background = pygame.transform.scale(bg, (WIDTH, HEIGHT))
     except:
         background = None
+
+# --- ЗАГРУЗКА МУЗЫКИ ---
+music_paths = [
+    "sprites/menu_music.ogg",
+    "sprites/menu_music.wav",
+    "sounds/menu_music.ogg",
+    "sounds/menu_music.wav"
+]
+music_loaded = False
+for path in music_paths:
+    if os.path.exists(path):
+        try:
+            pygame.mixer.music.load(path)
+            music_loaded = True
+            break
+        except:
+            pass
 
 # --- ЗАГРУЗКА СПРАЙТОВ ---
 def load_sprites():
@@ -101,8 +119,6 @@ game_state = MENU
 # --- АНИМАЦИИ ---
 animations = []
 
-# Классы анимаций (Swap, Remove, Drop) — те же, что и раньше, но я их оставлю кратко для экономии места.
-# Вставьте их сюда, они не изменились.
 class SwapAnimation:
     def __init__(self, r1, c1, r2, c2, duration=200):
         self.r1, self.c1 = r1, c1
@@ -285,7 +301,6 @@ def draw_menu():
     title = big_font.render("Uni in a Row", True, WHITE)
     screen.blit(title, (WIDTH//2 - title.get_width()//2, 100))
     
-    # Три кнопки меню
     btn_width, btn_height = 200, 50
     btn_x = WIDTH//2 - btn_width//2
     
@@ -293,7 +308,6 @@ def draw_menu():
     load_btn = pygame.Rect(btn_x, 330, btn_width, btn_height)
     exit_btn = pygame.Rect(btn_x, 410, btn_width, btn_height)
     
-    # Состояние кнопки загрузки
     has_save_flag = has_save()
     
     pygame.draw.rect(screen, GREEN, new_btn)
@@ -337,6 +351,15 @@ def draw_game_over():
     
     return restart_btn, exit_btn
 
+# --- УПРАВЛЕНИЕ МУЗЫКОЙ ---
+def play_menu_music():
+    if music_loaded:
+        pygame.mixer.music.play(-1)  # Бесконечный повтор
+
+def stop_music():
+    if music_loaded:
+        pygame.mixer.music.stop()
+
 # --- ГЛАВНЫЙ ЦИКЛ ---
 running = True
 while running:
@@ -347,7 +370,6 @@ while running:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
-            # --- МЕНЮ ---
             if game_state == MENU:
                 new_btn, load_btn, exit_btn = draw_menu()
                 if new_btn.collidepoint(pos):
@@ -356,7 +378,7 @@ while running:
                     selected = None
                     animations = []
                     game_state = PLAYING
-                    # Удаляем старый сейв при старте новой игры
+                    stop_music()  # Останавливаем музыку при старте игры
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
                 elif load_btn.collidepoint(pos) and has_save():
@@ -367,10 +389,10 @@ while running:
                         selected = None
                         animations = []
                         game_state = PLAYING
+                        stop_music()
                 elif exit_btn.collidepoint(pos):
                     running = False
             
-            # --- КОНЕЦ ИГРЫ ---
             elif game_state == GAME_OVER:
                 restart_btn, exit_btn = draw_game_over()
                 if restart_btn.collidepoint(pos):
@@ -379,14 +401,13 @@ while running:
                     selected = None
                     animations = []
                     game_state = PLAYING
+                    stop_music()
                     if os.path.exists(get_save_path()):
                         os.remove(get_save_path())
                 elif exit_btn.collidepoint(pos):
                     running = False
             
-            # --- ИГРА ---
             elif game_state == PLAYING:
-                # Кнопка "Сохранить и выйти" (в левом нижнем углу)
                 save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
                 if save_btn.collidepoint(pos):
                     save_game(grid, score)
@@ -407,7 +428,7 @@ while running:
                         else:
                             selected = cell
 
-    # --- ИГРОВАЯ ЛОГИКА (только в PLAYING) ---
+    # --- ИГРОВАЯ ЛОГИКА ---
     if game_state == PLAYING:
         if not animations:
             matches = find_matches()
@@ -420,6 +441,7 @@ while running:
                 score += 1
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
+                play_menu_music()  # Включаем музыку на экране окончания
 
         for anim in animations:
             anim.update()
@@ -427,8 +449,12 @@ while running:
 
     # --- ОТРИСОВКА ---
     if game_state == MENU:
+        if not pygame.mixer.music.get_busy() and music_loaded:
+            play_menu_music()  # Запускаем музыку при входе в меню
         draw_menu()
     elif game_state == GAME_OVER:
+        if not pygame.mixer.music.get_busy() and music_loaded:
+            play_menu_music()
         draw_game_over()
     else:
         screen.fill(BLACK)
@@ -440,11 +466,9 @@ while running:
         for anim in animations:
             anim.draw(screen)
         
-        # Счёт
         score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
         
-        # Кнопка "Сохранить и выйти"
         save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
         pygame.draw.rect(screen, BLUE, save_btn)
         save_text = small_font.render("Сохранить", True, WHITE)
