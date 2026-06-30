@@ -4,13 +4,35 @@ import os
 import json
 import math
 import sys
+import subprocess
+import string
+import urllib.request
 
 pygame.init()
 pygame.mixer.init()
 
-# --- НАСТРОЙКИ ПО УМОЛЧАНИЮ ---
-SETTINGS_FILE = "settings.json"
+# --- ПАПКИ И ФАЙЛЫ ---
+PLAYERS_FOLDER = "players_data"
 PROFILE_FILE = "profile.json"
+SETTINGS_FILE = "settings.json"
+BAN_FILE = "bans.json"
+
+# --- ПРОВЕРКА ОБНОВЛЕНИЙ ---
+def check_updates():
+    if not os.path.exists("version.txt"):
+        return False, "0.0.0", "0.0.0"
+    try:
+        with open("version.txt", "r") as f:
+            local_version = f.read().strip()
+        url = "https://raw.githubusercontent.com/anhedonuya/UniInARow/main/version.txt"
+        req = urllib.request.Request(url, headers={"Accept": "text/plain"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            remote_version = response.read().decode("utf-8").strip()
+        return local_version != remote_version, local_version, remote_version
+    except Exception:
+        return False, "0.0.0", "0.0.0"
+
+# --- НАСТРОЙКИ ---
 DEFAULT_SETTINGS = {
     "fullscreen": False,
     "music_volume": 0.5,
@@ -18,6 +40,7 @@ DEFAULT_SETTINGS = {
 }
 DEFAULT_PROFILE = {
     "player_name": "Игрок",
+    "player_id": "",
     "total_games": 0,
     "total_score": 0,
     "best_score": 0
@@ -36,21 +59,103 @@ def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+def generate_player_id():
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(chars, k=6))
+
+def ensure_players_folder():
+    if not os.path.exists(PLAYERS_FOLDER):
+        os.makedirs(PLAYERS_FOLDER)
+
+def get_all_players():
+    ensure_players_folder()
+    players = []
+    for filename in os.listdir(PLAYERS_FOLDER):
+        if filename.endswith(".json"):
+            try:
+                with open(os.path.join(PLAYERS_FOLDER, filename), "r") as f:
+                    data = json.load(f)
+                    players.append({
+                        "name": data.get("player_name"),
+                        "id": data.get("player_id")
+                    })
+            except:
+                pass
+    return players
+
+def is_name_taken(name, exclude_id=None):
+    players = get_all_players()
+    for p in players:
+        if p["name"] == name and p["id"] != exclude_id:
+            return True
+    return False
+
+def save_player_data(data):
+    ensure_players_folder()
+    filename = os.path.join(PLAYERS_FOLDER, f"{data['player_id']}.json")
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
+
+def delete_player_data(player_id):
+    filename = os.path.join(PLAYERS_FOLDER, f"{player_id}.json")
+    if os.path.exists(filename):
+        os.remove(filename)
+
+def load_bans():
+    if os.path.exists(BAN_FILE):
+        try:
+            with open(BAN_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_bans(bans):
+    with open(BAN_FILE, "w") as f:
+        json.dump(bans, f, indent=4)
+
 def load_profile():
+    ensure_players_folder()
     if os.path.exists(PROFILE_FILE):
         try:
             with open(PROFILE_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "player_id" not in data or not data["player_id"]:
+                    data["player_id"] = generate_player_id()
+                    if os.path.exists("developer.key"):
+                        data["player_id"] = "DEVELOPER"
+                    save_profile(data)
+                    save_player_data(data)
+                return data
         except:
-            return DEFAULT_PROFILE.copy()
-    return DEFAULT_PROFILE.copy()
+            pass
+    new_profile = DEFAULT_PROFILE.copy()
+    new_profile["player_id"] = generate_player_id()
+    if os.path.exists("developer.key"):
+        new_profile["player_id"] = "DEVELOPER"
+    
+    if new_profile["player_id"] != "DEVELOPER":
+        if is_name_taken(new_profile["player_name"]):
+            new_profile["player_name"] = f"Игрок_{new_profile['player_id'][:4]}"
+    
+    save_profile(new_profile)
+    save_player_data(new_profile)
+    return new_profile
 
 def save_profile(profile):
     with open(PROFILE_FILE, "w") as f:
         json.dump(profile, f, indent=4)
+    save_player_data(profile)
 
 settings = load_settings()
 profile = load_profile()
+bans = load_bans()
+
+# Проверка бана
+if profile["player_id"] in bans or profile["player_name"] in bans:
+    print("❌ Вы забанены!")
+    pygame.quit()
+    sys.exit()
 
 # --- РАЗМЕРЫ ОКНА ---
 WINDOW_WIDTH, WINDOW_HEIGHT = 600, 700
@@ -74,7 +179,7 @@ DARK_GRAY = (30, 30, 30)
 GREEN = (0, 200, 0)
 RED = (200, 0, 0)
 BLUE = (0, 100, 255)
-PROFILE_BG = (0, 0, 0, 180)
+YELLOW = (255, 255, 0)
 
 # --- РАСЧЁТ РАЗМЕРОВ ЯЧЕЙКИ И ПОЛЯ ---
 GRID_SIZE = 6
@@ -130,12 +235,7 @@ def get_current_background():
     return None
 
 # --- ЗАГРУЗКА МУЗЫКИ ---
-music_paths = [
-    "sprites/menu_music.ogg",
-    "sprites/menu_music.wav",
-    "sounds/menu_music.ogg",
-    "sounds/menu_music.wav"
-]
+music_paths = ["sprites/menu_music.ogg", "sprites/menu_music.wav", "sounds/menu_music.ogg", "sounds/menu_music.wav"]
 music_loaded = False
 music_started = False
 
@@ -144,11 +244,10 @@ for path in music_paths:
         try:
             pygame.mixer.music.load(path)
             music_loaded = True
-            print("🎵 Музыка загружена:", path)
             pygame.mixer.music.set_volume(settings.get("music_volume", 0.5))
             break
-        except Exception as e:
-            print("⚠️ Ошибка загрузки музыки:", e)
+        except:
+            pass
 
 # --- ЗАГРУЗКА СПРАЙТОВ ---
 def load_sprites():
@@ -179,7 +278,9 @@ def save_game(grid_data, score_val):
     data = {
         "grid": grid_data,
         "score": score_val,
-        "version": 1
+        "version": 1,
+        "player_id": profile["player_id"],
+        "player_name": profile["player_name"]
     }
     with open(get_save_path(), "w") as f:
         json.dump(data, f)
@@ -195,7 +296,7 @@ def load_game():
 def has_save():
     return os.path.exists(get_save_path())
 
-# --- ПРОФИЛЬ И СТАТИСТИКА ---
+# --- ПРОФИЛЬ ---
 def update_profile(score):
     global profile
     profile["total_games"] += 1
@@ -205,20 +306,22 @@ def update_profile(score):
     save_profile(profile)
 
 def draw_profile_on_menu():
-    """Рисует профиль в главном меню"""
-    bg_surf = pygame.Surface((200, 100), pygame.SRCALPHA)
+    bg_surf = pygame.Surface((250, 110), pygame.SRCALPHA)
     bg_surf.fill((0, 0, 0, 180))
-    screen.blit(bg_surf, (WIDTH - 220, 10))
+    screen.blit(bg_surf, (WIDTH - 270, 10))
     
     name_text = font.render(profile["player_name"], True, WHITE)
-    screen.blit(name_text, (WIDTH - 210, 15))
+    screen.blit(name_text, (WIDTH - 260, 15))
+    
+    id_text = small_font.render(f"ID: {profile['player_id']}", True, (200, 200, 200))
+    screen.blit(id_text, (WIDTH - 260, 40))
     
     stats = f"Игр: {profile['total_games']}  Рекорд: {profile['best_score']}"
-    stats_text = small_font.render(stats, True, (200, 200, 200))
-    screen.blit(stats_text, (WIDTH - 210, 45))
+    stats_text = small_font.render(stats, True, (180, 180, 180))
+    screen.blit(stats_text, (WIDTH - 260, 60))
     
-    total_text = small_font.render(f"Всего очков: {profile['total_score']}", True, (180, 180, 180))
-    screen.blit(total_text, (WIDTH - 210, 70))
+    total_text = small_font.render(f"Всего очков: {profile['total_score']}", True, (150, 150, 150))
+    screen.blit(total_text, (WIDTH - 260, 80))
 
 # --- ИГРОВОЕ ПОЛЕ ---
 def create_grid():
@@ -236,6 +339,7 @@ MENU = 0
 PLAYING = 1
 GAME_OVER = 2
 SETTINGS_MENU = 3
+UPDATE_AVAILABLE = 4
 game_state = MENU
 
 # --- АНИМАЦИИ ---
@@ -461,88 +565,96 @@ def draw_grid():
 
 def draw_title(text, x, y, size=72):
     font_big = pygame.font.Font(None, size)
-    
     text_surf = font_big.render(text, True, WHITE)
     text_rect = text_surf.get_rect(center=(x, y))
-    
     shadow_surf = font_big.render(text, True, (30, 30, 30))
     shadow_rect = text_rect.copy()
     shadow_rect.x += 4
     shadow_rect.y += 4
     screen.blit(shadow_surf, shadow_rect)
-    
     shadow2_surf = font_big.render(text, True, (60, 60, 60))
     shadow2_rect = text_rect.copy()
     shadow2_rect.x += 2
     shadow2_rect.y += 2
     screen.blit(shadow2_surf, shadow2_rect)
-    
-    colors = [
-        (255, 200, 50),
-        (255, 180, 30),
-        (200, 150, 50),
-    ]
-    
+    colors = [(255, 200, 50), (255, 180, 30), (200, 150, 50)]
     for i, col in enumerate(colors):
         surf = font_big.render(text, True, col)
         rect = text_rect.copy()
         rect.x += i * 1
         rect.y += i * 1
         screen.blit(surf, rect)
-    
     highlight_surf = font_big.render(text, True, (255, 240, 200))
     screen.blit(highlight_surf, text_rect)
-    
     border_rect = text_rect.inflate(30, 20)
     pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
     outer_rect = border_rect.inflate(10, 10)
     pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
+
+def draw_update_notification():
+    screen.fill(BLACK)
+    bg = get_current_background()
+    if bg:
+        screen.blit(bg, (0, 0))
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 150))
+    screen.blit(overlay, (0, 0))
+    box_width, box_height = 400, 250
+    box_x = (WIDTH - box_width) // 2
+    box_y = (HEIGHT - box_height) // 2
+    pygame.draw.rect(screen, (30, 30, 30), (box_x, box_y, box_width, box_height), border_radius=15)
+    pygame.draw.rect(screen, WHITE, (box_x, box_y, box_width, box_height), 2, border_radius=15)
+    title = big_font.render("Обновление!", True, YELLOW)
+    screen.blit(title, (WIDTH//2 - title.get_width()//2, box_y + 20))
+    info_text = font.render("Доступна новая версия игры", True, WHITE)
+    screen.blit(info_text, (WIDTH//2 - info_text.get_width()//2, box_y + 90))
+    update_btn = pygame.Rect(box_x + 50, box_y + 160, 130, 40)
+    skip_btn = pygame.Rect(box_x + 220, box_y + 160, 130, 40)
+    pygame.draw.rect(screen, GREEN, update_btn, border_radius=10)
+    pygame.draw.rect(screen, RED, skip_btn, border_radius=10)
+    update_text = font.render("Обновить", True, WHITE)
+    skip_text = font.render("Позже", True, WHITE)
+    screen.blit(update_text, (update_btn.x + 15, update_btn.y + 8))
+    screen.blit(skip_text, (skip_btn.x + 30, skip_btn.y + 8))
+    return update_btn, skip_btn
 
 def draw_menu():
     screen.fill(BLACK)
     bg = get_current_background()
     if bg:
         screen.blit(bg, (0, 0))
-    
     draw_title("Uni in a Row", WIDTH//2, 120, 72 if not fullscreen else 96)
-    
     btn_width, btn_height = 200, 50
     btn_x = WIDTH//2 - btn_width//2
-    
     has_save_flag = has_save()
     y_start = 250 if not fullscreen else 300
-    
     new_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
     load_btn = pygame.Rect(btn_x, y_start + 80, btn_width, btn_height)
     settings_btn = pygame.Rect(btn_x, y_start + 160, btn_width, btn_height)
     exit_btn = pygame.Rect(btn_x, y_start + 240, btn_width, btn_height)
-    
-    for btn, color in [(new_btn, GREEN), 
-                       (load_btn, BLUE if has_save_flag else GRAY),
-                       (settings_btn, (100, 100, 200)),
-                       (exit_btn, RED)]:
+    for btn, color in [(new_btn, GREEN), (load_btn, BLUE if has_save_flag else GRAY), (settings_btn, (100, 100, 200)), (exit_btn, RED)]:
         shadow_btn = btn.copy()
         shadow_btn.y += 4
         pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
         pygame.draw.rect(screen, color, btn, border_radius=12)
-    
     new_text = font.render("Новая игра", True, WHITE)
     load_text = font.render("Загрузить", True, WHITE)
     settings_text = font.render("Настройки", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
-    
     screen.blit(new_text, (WIDTH//2 - new_text.get_width()//2, y_start + 12))
     screen.blit(load_text, (WIDTH//2 - load_text.get_width()//2, y_start + 92))
     screen.blit(settings_text, (WIDTH//2 - settings_text.get_width()//2, y_start + 172))
     screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, y_start + 252))
-    
     if not has_save_flag:
         no_save_text = small_font.render("(нет сохранения)", True, (150,150,150))
         screen.blit(no_save_text, (WIDTH//2 - no_save_text.get_width()//2, y_start + 50))
-    
-    # Профиль в меню
     draw_profile_on_menu()
-    
+    if profile["player_id"] == "DEVELOPER":
+        admin_btn = pygame.Rect(WIDTH - 170, 130, 150, 30)
+        pygame.draw.rect(screen, (100, 0, 100), admin_btn, border_radius=8)
+        admin_text = font.render("Админ панель", True, WHITE)
+        screen.blit(admin_text, (WIDTH - 160, 135))
+        return new_btn, load_btn, settings_btn, exit_btn, admin_btn
     return new_btn, load_btn, settings_btn, exit_btn
 
 def draw_settings_menu():
@@ -550,38 +662,30 @@ def draw_settings_menu():
     bg = get_current_background()
     if bg:
         screen.blit(bg, (0, 0))
-    
     draw_title("Настройки", WIDTH//2, 120, 60)
-    
     btn_width, btn_height = 250, 50
     btn_x = WIDTH//2 - btn_width//2
     y_start = 230 if not fullscreen else 280
-    
     fs_btn = pygame.Rect(btn_x, y_start, btn_width, btn_height)
     vol_btn = pygame.Rect(btn_x, y_start + 70, btn_width, btn_height)
     name_btn = pygame.Rect(btn_x, y_start + 140, btn_width, btn_height)
     back_btn = pygame.Rect(btn_x, y_start + 210, btn_width, btn_height)
-    
     fs_color = GREEN if settings.get("fullscreen", False) else GRAY
     pygame.draw.rect(screen, fs_color, fs_btn, border_radius=12)
     fs_text = font.render(f"Полный экран: {'Вкл' if settings.get('fullscreen', False) else 'Выкл'}", True, WHITE)
     screen.blit(fs_text, (WIDTH//2 - fs_text.get_width()//2, y_start + 12))
-    
     vol_color = (100, 100, 200)
     pygame.draw.rect(screen, vol_color, vol_btn, border_radius=12)
     vol_val = int(settings.get("music_volume", 0.5) * 100)
     vol_text = font.render(f"Громкость: {vol_val}% (← →)", True, WHITE)
     screen.blit(vol_text, (WIDTH//2 - vol_text.get_width()//2, y_start + 82))
-    
     name_color = (100, 200, 100)
     pygame.draw.rect(screen, name_color, name_btn, border_radius=12)
     name_text = font.render(f"Имя: {profile['player_name']}", True, WHITE)
     screen.blit(name_text, (WIDTH//2 - name_text.get_width()//2, y_start + 152))
-    
     pygame.draw.rect(screen, RED, back_btn, border_radius=12)
     back_text = font.render("Назад", True, WHITE)
     screen.blit(back_text, (WIDTH//2 - back_text.get_width()//2, y_start + 222))
-    
     return fs_btn, vol_btn, name_btn, back_btn
 
 def draw_game_over():
@@ -591,53 +695,64 @@ def draw_game_over():
         screen.blit(bg, (0, 0))
     game_over_text = big_font.render("Игра окончена!", True, RED)
     screen.blit(game_over_text, (WIDTH//2 - game_over_text.get_width()//2, 150))
-    
     score_text = font.render(f"Счёт: {score}", True, WHITE)
     screen.blit(score_text, (WIDTH//2 - score_text.get_width()//2, 250))
-    
-    # Статистика
     best_text = small_font.render(f"Рекорд: {profile['best_score']}  Всего очков: {profile['total_score']}", True, (200,200,200))
     screen.blit(best_text, (WIDTH//2 - best_text.get_width()//2, 290))
-    
     restart_btn = pygame.Rect(WIDTH//2 - 80, 350, 160, 50)
     exit_btn = pygame.Rect(WIDTH//2 - 80, 450, 160, 50)
-    
     for btn, color in [(restart_btn, GREEN), (exit_btn, RED)]:
         shadow_btn = btn.copy()
         shadow_btn.y += 4
         pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
         pygame.draw.rect(screen, color, btn, border_radius=12)
-    
     restart_text = font.render("Новая игра", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
     screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, 360))
     screen.blit(exit_text, (WIDTH//2 - exit_text.get_width()//2, 460))
-    
     return restart_btn, exit_btn
 
-# --- ОБНОВЛЕНИЕ ЭКРАНА ---
 def toggle_fullscreen():
     global fullscreen, screen, WIDTH, HEIGHT, backgrounds
     fullscreen = not fullscreen
     settings["fullscreen"] = fullscreen
     save_settings(settings)
-    
     if fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         WIDTH, HEIGHT = screen.get_width(), screen.get_height()
     else:
         WIDTH, HEIGHT = WINDOW_WIDTH, WINDOW_HEIGHT
         screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    
     backgrounds = load_backgrounds()
     recalculate_sizes()
     pygame.display.flip()
 
+def run_updater():
+    try:
+        subprocess.Popen([sys.executable, "updater.py"])
+        pygame.quit()
+        sys.exit(0)
+    except:
+        pass
+
+def open_admin_panel():
+    try:
+        import admin_panel
+        admin_panel.show_admin_panel(screen, font, small_font, WIDTH, HEIGHT, profile)
+    except Exception as e:
+        print(f"Ошибка открытия админ-панели: {e}")
+
 # --- ГЛАВНЫЙ ЦИКЛ ---
 recalculate_sizes()
+has_update, local_ver, remote_ver = check_updates()
+if has_update:
+    game_state = UPDATE_AVAILABLE
+
 running = True
 input_active = False
 input_text = ""
+error_message = ""
+error_timer = 0
 
 while running:
     if music_loaded and not music_started:
@@ -658,6 +773,8 @@ while running:
                     game_state = MENU
                     selected = None
                     drag_start_cell = None
+                elif game_state == UPDATE_AVAILABLE:
+                    game_state = MENU
             if game_state == SETTINGS_MENU:
                 if event.key == pygame.K_LEFT:
                     new_vol = settings.get("music_volume", 0.5) - 0.05
@@ -671,11 +788,21 @@ while running:
                     save_settings(settings)
             if input_active:
                 if event.key == pygame.K_RETURN:
-                    if input_text.strip():
-                        profile["player_name"] = input_text.strip()
-                        save_profile(profile)
-                    input_active = False
-                    input_text = ""
+                    new_name = input_text.strip()
+                    if new_name:
+                        if is_name_taken(new_name, exclude_id=profile["player_id"]):
+                            error_message = "❌ Это имя уже занято!"
+                            error_timer = 90
+                        else:
+                            delete_player_data(profile["player_id"])
+                            profile["player_name"] = new_name
+                            save_profile(profile)
+                            save_player_data(profile)
+                            input_active = False
+                            input_text = ""
+                    else:
+                        input_active = False
+                        input_text = ""
                 elif event.key == pygame.K_BACKSPACE:
                     input_text = input_text[:-1]
                 else:
@@ -684,8 +811,20 @@ while running:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = pygame.mouse.get_pos()
             
-            if game_state == MENU:
-                new_btn, load_btn, settings_btn, exit_btn = draw_menu()
+            if game_state == UPDATE_AVAILABLE:
+                update_btn, skip_btn = draw_update_notification()
+                if update_btn.collidepoint(pos):
+                    run_updater()
+                elif skip_btn.collidepoint(pos):
+                    game_state = MENU
+            
+            elif game_state == MENU:
+                if profile["player_id"] == "DEVELOPER":
+                    new_btn, load_btn, settings_btn, exit_btn, admin_btn = draw_menu()
+                    if admin_btn.collidepoint(pos):
+                        open_admin_panel()
+                else:
+                    new_btn, load_btn, settings_btn, exit_btn = draw_menu()
                 if new_btn.collidepoint(pos):
                     grid = create_grid()
                     score = 0
@@ -739,7 +878,6 @@ while running:
                     save_game(grid, score)
                     running = False
                     continue
-                
                 cell = get_cell(pos)
                 if cell:
                     drag_start_cell = cell
@@ -811,47 +949,43 @@ while running:
         draw_settings_menu()
     elif game_state == GAME_OVER:
         draw_game_over()
+    elif game_state == UPDATE_AVAILABLE:
+        draw_update_notification()
     else:
         screen.fill(BLACK)
         bg = get_current_background()
         if bg:
             screen.blit(bg, (0, 0))
-        
         draw_grid()
-        
         for anim in error_animations:
             anim.draw(screen)
-        
         for anim in animations:
             anim.draw(screen)
-        
-        # СЧЁТ В ИГРЕ
         score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
-        
         save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
         pygame.draw.rect(screen, BLUE, save_btn, border_radius=8)
         save_text = small_font.render("Сохранить", True, WHITE)
         screen.blit(save_text, (15, HEIGHT - 35))
-        
         hint_text = small_font.render("F11 — полный экран", True, (100,100,100))
         screen.blit(hint_text, (WIDTH - hint_text.get_width() - 10, HEIGHT - 30))
-        
-        # Профиля в игре НЕТ
 
     if input_active:
         input_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         input_surf.fill((0, 0, 0, 200))
         screen.blit(input_surf, (0, 0))
-        
         prompt = font.render("Введите имя:", True, WHITE)
         screen.blit(prompt, (WIDTH//2 - prompt.get_width()//2, HEIGHT//2 - 60))
-        
         input_box = pygame.Rect(WIDTH//2 - 150, HEIGHT//2 - 20, 300, 40)
         pygame.draw.rect(screen, WHITE, input_box, 2)
         text_surf = font.render(input_text + "|", True, WHITE)
         screen.blit(text_surf, (input_box.x + 10, input_box.y + 5))
-        
+        if error_message and error_timer > 0:
+            err_surf = font.render(error_message, True, RED)
+            screen.blit(err_surf, (WIDTH//2 - err_surf.get_width()//2, HEIGHT//2 + 40))
+            error_timer -= 1
+        else:
+            error_message = ""
         pygame.display.flip()
         continue
 
