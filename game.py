@@ -297,12 +297,62 @@ def draw_grid():
             if selected and selected == (row, col):
                 pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
 
+def draw_title(text, x, y, size=72):
+    """Рисует оформленный заголовок с тенью и градиентом"""
+    font_big = pygame.font.Font(None, size)
+    
+    # Создаём поверхность для текста
+    text_surf = font_big.render(text, True, WHITE)
+    text_rect = text_surf.get_rect(center=(x, y))
+    
+    # Рисуем тень (смещение вправо-вниз)
+    shadow_surf = font_big.render(text, True, (30, 30, 30))
+    shadow_rect = text_rect.copy()
+    shadow_rect.x += 4
+    shadow_rect.y += 4
+    screen.blit(shadow_surf, shadow_rect)
+    
+    # Рисуем второй слой тени (для объёма)
+    shadow2_surf = font_big.render(text, True, (60, 60, 60))
+    shadow2_rect = text_rect.copy()
+    shadow2_rect.x += 2
+    shadow2_rect.y += 2
+    screen.blit(shadow2_surf, shadow2_rect)
+    
+    # Создаём градиентный эффект: рисуем текст несколько раз разными цветами
+    colors = [
+        (255, 200, 50),   # золотой
+        (255, 180, 30),   # тёмно-золотой
+        (200, 150, 50),   # бронзовый
+    ]
+    
+    # Основной текст с небольшими смещениями для градиента
+    for i, col in enumerate(colors):
+        surf = font_big.render(text, True, col)
+        rect = text_rect.copy()
+        rect.x += i * 1
+        rect.y += i * 1
+        screen.blit(surf, rect)
+    
+    # Яркий верхний слой (блик)
+    highlight_surf = font_big.render(text, True, (255, 240, 200))
+    screen.blit(highlight_surf, text_rect)
+    
+    # Рамка вокруг текста
+    border_rect = text_rect.inflate(30, 20)
+    pygame.draw.rect(screen, (100, 80, 30), border_rect, 2, border_radius=10)
+    
+    # Внешняя тонкая рамка
+    outer_rect = border_rect.inflate(10, 10)
+    pygame.draw.rect(screen, (60, 50, 20), outer_rect, 1, border_radius=12)
+
 def draw_menu():
     screen.fill(BLACK)
     if background:
         screen.blit(background, (0, 0))
-    title = big_font.render("Uni in a Row", True, WHITE)
-    screen.blit(title, (WIDTH//2 - title.get_width()//2, 100))
+    
+    # Оформленное название игры
+    draw_title("Uni in a Row", WIDTH//2, 120, 72)
     
     btn_width, btn_height = 200, 50
     btn_x = WIDTH//2 - btn_width//2
@@ -313,9 +363,15 @@ def draw_menu():
     
     has_save_flag = has_save()
     
-    pygame.draw.rect(screen, GREEN, new_btn)
-    pygame.draw.rect(screen, BLUE if has_save_flag else GRAY, load_btn)
-    pygame.draw.rect(screen, RED, exit_btn)
+    # Кнопки с закруглёнными углами
+    for btn, color in [(new_btn, GREEN), (load_btn, BLUE if has_save_flag else GRAY), (exit_btn, RED)]:
+        pygame.draw.rect(screen, color, btn, border_radius=12)
+        # Тень для кнопок
+        shadow_btn = btn.copy()
+        shadow_btn.y += 4
+        pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
+        # Основная кнопка поверх тени
+        pygame.draw.rect(screen, color, btn, border_radius=12)
     
     new_text = font.render("Новая игра", True, WHITE)
     load_text = font.render("Загрузить", True, WHITE)
@@ -344,8 +400,11 @@ def draw_game_over():
     restart_btn = pygame.Rect(WIDTH//2 - 80, 350, 160, 50)
     exit_btn = pygame.Rect(WIDTH//2 - 80, 450, 160, 50)
     
-    pygame.draw.rect(screen, GREEN, restart_btn)
-    pygame.draw.rect(screen, RED, exit_btn)
+    for btn, color in [(restart_btn, GREEN), (exit_btn, RED)]:
+        shadow_btn = btn.copy()
+        shadow_btn.y += 4
+        pygame.draw.rect(screen, (0,0,0), shadow_btn, border_radius=12)
+        pygame.draw.rect(screen, color, btn, border_radius=12)
     
     restart_text = font.render("Новая игра", True, WHITE)
     exit_text = font.render("Выход", True, WHITE)
@@ -362,7 +421,6 @@ def play_menu_music():
 # --- ГЛАВНЫЙ ЦИКЛ ---
 running = True
 while running:
-    # Музыка запускается один раз при старте и играет всегда
     if music_loaded and not music_started:
         pygame.mixer.music.play(-1)
         music_started = True
@@ -429,7 +487,6 @@ while running:
                         else:
                             selected = cell
 
-    # --- ИГРОВАЯ ЛОГИКА ---
     if game_state == PLAYING:
         if not animations:
             matches = find_matches()
@@ -447,7 +504,6 @@ while running:
             anim.update()
         animations = [a for a in animations if not a.finished]
 
-    # --- ОТРИСОВКА ---
     if game_state == MENU:
         draw_menu()
     elif game_state == GAME_OVER:
@@ -466,7 +522,7 @@ while running:
         screen.blit(score_text, (10, 10))
         
         save_btn = pygame.Rect(10, HEIGHT - 40, 120, 30)
-        pygame.draw.rect(screen, BLUE, save_btn)
+        pygame.draw.rect(screen, BLUE, save_btn, border_radius=8)
         save_text = small_font.render("Сохранить", True, WHITE)
         screen.blit(save_text, (15, HEIGHT - 35))
 
