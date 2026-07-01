@@ -9,6 +9,7 @@ import string
 import urllib.request
 import hashlib
 import time
+import levels
 
 pygame.init()
 pygame.mixer.init()
@@ -295,17 +296,19 @@ def get_save_path():
         os.makedirs("saves")
     return "saves/save.dat"
 
-def save_game(grid_data, score_val):
+def save_game(grid_data, score_val, level_val, moves_val, color_counters_val):
     data = {
         "grid": grid_data,
         "score": score_val,
+        "level": level_val,
+        "moves": moves_val,
+        "color_counters": color_counters_val,
         "version": 1,
         "player_id": profile["player_id"],
         "player_name": profile["player_name"]
     }
     with open(get_save_path(), "w") as f:
         json.dump(data, f)
-    update_profile(score_val)
 
 def load_game():
     path = get_save_path()
@@ -574,6 +577,120 @@ def draw_gear_button():
         return save_btn, menu_btn
     return None, None
 
+def draw_level_info():
+    """Рисует информацию об уровне с полоской прогресса и иконкой цели"""
+    if game_state != PLAYING:
+        return
+    
+    level_data = levels.get_level_data(current_level)
+    
+    # --- Текст цели ---
+    if level_data["type"] == "score":
+        target_text = f"Цель: {level_data['target']} очков"
+        current_value = score
+        max_value = level_data["target"]
+        remaining = max(0, max_value - current_value)
+    else:
+        current_value = color_counters.get(level_data["color"], 0)
+        max_value = level_data["target"]
+        remaining = max(0, max_value - current_value)
+        target_text = f"Цель: {level_data['target']} фишек"
+    
+    # --- Полоска прогресса ---
+    progress = min(current_value / max_value, 1.0) if max_value > 0 else 0
+    bar_width = 200
+    bar_height = 12
+    bar_x = WIDTH - bar_width - 10
+    bar_y = 40
+    
+    pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height), border_radius=6)
+    if progress > 0:
+        fill_color = (100, 255, 100) if progress < 1 else (100, 255, 100)
+        pygame.draw.rect(screen, fill_color, (bar_x, bar_y, int(bar_width * progress), bar_height), border_radius=6)
+    pygame.draw.rect(screen, WHITE, (bar_x, bar_y, bar_width, bar_height), 1, border_radius=6)
+    
+    percent_text = small_font.render(f"{int(progress * 100)}%", True, WHITE)
+    screen.blit(percent_text, (bar_x + bar_width//2 - percent_text.get_width()//2, bar_y - 2))
+    
+    # --- Информация об уровне ---
+    level_text = small_font.render(f"Уровень {current_level}", True, WHITE)
+    screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 8))
+    
+    # --- Цель ---
+    target_surf = small_font.render(target_text, True, (200, 200, 200))
+    screen.blit(target_surf, (WIDTH - target_surf.get_width() - 10, 24))
+    
+    # --- Иконка цели (только для цветных уровней) ---
+    if level_data["type"] == "color" and remaining > 0:
+        target_color = level_data["color"]
+        if target_color in sprites:
+            icon = sprites[target_color]
+            icon_size = 28
+            icon = pygame.transform.scale(icon, (icon_size, icon_size))
+            icon_x = WIDTH - 60
+            icon_y = 58
+            screen.blit(icon, (icon_x, icon_y))
+            
+            # Цифра сколько осталось (под иконкой)
+            remaining_text = small_font.render(str(remaining), True, WHITE)
+            remaining_x = icon_x + icon_size//2 - remaining_text.get_width()//2
+            screen.blit(remaining_text, (remaining_x, icon_y + icon_size + 2))
+        else:
+            # Запасной вариант — цветной квадрат
+            color_map = {
+                "blue": BLUE,
+                "green": GREEN,
+                "red": RED,
+                "yellow": YELLOW,
+                "purple": (128, 0, 128)
+            }
+            color = color_map.get(target_color, WHITE)
+            pygame.draw.rect(screen, color, (WIDTH - 60, 58, 28, 28))
+            remaining_text = small_font.render(str(remaining), True, WHITE)
+            remaining_x = WIDTH - 60 + 14 - remaining_text.get_width()//2
+            screen.blit(remaining_text, (remaining_x, 88))
+    
+    elif level_data["type"] == "score" and remaining > 0:
+        # Для очков — только текст
+        remaining_text = small_font.render(f"Осталось: {remaining} очков", True, (255, 255, 100))
+        screen.blit(remaining_text, (WIDTH - remaining_text.get_width() - 10, 58))
+    
+    elif remaining <= 0:
+        done_surf = small_font.render("✅ Цель достигнута!", True, (100, 255, 100))
+        screen.blit(done_surf, (WIDTH - done_surf.get_width() - 10, 58))
+    
+    # --- Ходы ---
+    moves_text = small_font.render(f"Ходы: {moves_left}", True, (200, 200, 255))
+    screen.blit(moves_text, (WIDTH - moves_text.get_width() - 10, 86))
+
+def draw_level_complete():
+    """Рисует экран завершения уровня"""
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))
+    screen.blit(overlay, (0, 0))
+    
+    box_width, box_height = 400, 250
+    box_x = (WIDTH - box_width) // 2
+    box_y = (HEIGHT - box_height) // 2
+    pygame.draw.rect(screen, (40, 40, 40), (box_x, box_y, box_width, box_height), border_radius=15)
+    pygame.draw.rect(screen, WHITE, (box_x, box_y, box_width, box_height), 2, border_radius=15)
+    
+    if game_state == GAME_COMPLETE:
+        title = big_font.render("🎉 Игра пройдена!", True, YELLOW)
+    else:
+        title = big_font.render(f"Уровень {current_level} пройден!", True, GREEN)
+    screen.blit(title, (WIDTH//2 - title.get_width()//2, box_y + 30))
+    
+    score_text = font.render(f"Очки: {score}", True, WHITE)
+    screen.blit(score_text, (WIDTH//2 - score_text.get_width()//2, box_y + 100))
+    
+    next_btn = pygame.Rect(box_x + box_width//2 - 80, box_y + 160, 160, 50)
+    pygame.draw.rect(screen, BLUE, next_btn, border_radius=10)
+    next_text = font.render("Далее", True, WHITE)
+    screen.blit(next_text, (next_btn.x + 40, next_btn.y + 12))
+    
+    return next_btn
+
 def draw_menu():
     global profile_btn_rect
     screen.fill(BLACK)
@@ -710,6 +827,18 @@ def open_admin_panel():
     except Exception as e:
         print(f"Ошибка: {e}")
 
+# --- УРОВНИ ---
+current_level = 1
+moves_left = levels.get_moves(1)
+score = 0
+color_counters = {
+    "blue": 0,
+    "green": 0,
+    "red": 0,
+    "yellow": 0,
+    "purple": 0
+}
+
 # --- ИГРОВОЕ ПОЛЕ ---
 def create_grid():
     return [[random.choice(colors_list) for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -785,6 +914,30 @@ def draw_grid():
                 screen.blit(sprite, (sx, sy))
             if selected and selected == (row, col):
                 pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
+
+def check_level_complete():
+    global current_level, score, moves_left, grid, game_state, color_counters
+    level_data = levels.get_level_data(current_level)
+    
+    if level_data["type"] == "score":
+        completed = score >= level_data["target"]
+    else:  # color
+        target_color = level_data["color"]
+        completed = color_counters.get(target_color, 0) >= level_data["target"]
+    
+    if completed:
+        if levels.is_last_level(current_level):
+            game_state = GAME_COMPLETE
+        else:
+            current_level = levels.next_level(current_level)
+            moves_left = levels.get_moves(current_level)
+            score = 0
+            for key in color_counters:
+                color_counters[key] = 0
+            grid = create_grid()
+            game_state = LEVEL_COMPLETE
+        return True
+    return False
 
 # --- АНИМАЦИИ ---
 class SwapAnimation:
@@ -937,8 +1090,6 @@ small_font = pygame.font.Font(None, 20)
 
 grid = create_grid()
 selected = None
-score = 0
-
 animations = []
 error_animations = []
 drag_start_cell = None
@@ -954,6 +1105,8 @@ SETTINGS_MENU = 3
 UPDATE_AVAILABLE = 4
 EXIT_CONFIRM = 5
 STATS = 6
+LEVEL_COMPLETE = 7
+GAME_COMPLETE = 8
 game_state = MENU
 
 recalculate_sizes()
@@ -991,6 +1144,8 @@ while running:
                 if game_state == SETTINGS_MENU:
                     game_state = MENU
                 elif game_state == STATS:
+                    game_state = MENU
+                elif game_state == LEVEL_COMPLETE or game_state == GAME_COMPLETE:
                     game_state = MENU
                 elif game_state == PLAYING:
                     if score > 0:
@@ -1056,8 +1211,12 @@ while running:
                     new_btn, load_btn, profile_btn, settings_btn, exit_btn = draw_menu()
                 
                 if new_btn.collidepoint(pos):
-                    grid = create_grid()
+                    current_level = 1
                     score = 0
+                    moves_left = levels.get_moves(1)
+                    for key in color_counters:
+                        color_counters[key] = 0
+                    grid = create_grid()
                     selected = None
                     animations = []
                     error_animations = []
@@ -1069,6 +1228,9 @@ while running:
                     if data:
                         grid = data["grid"]
                         score = data["score"]
+                        current_level = data.get("level", 1)
+                        moves_left = data.get("moves", levels.get_moves(current_level))
+                        color_counters = data.get("color_counters", {"blue": 0, "green": 0, "red": 0, "yellow": 0, "purple": 0})
                         selected = None
                         animations = []
                         error_animations = []
@@ -1092,6 +1254,14 @@ while running:
                 elif no_btn.collidepoint(pos):
                     game_state = MENU
             
+            elif game_state == LEVEL_COMPLETE or game_state == GAME_COMPLETE:
+                next_btn = draw_level_complete()
+                if next_btn.collidepoint(pos):
+                    if game_state == GAME_COMPLETE:
+                        game_state = MENU
+                    else:
+                        game_state = PLAYING
+            
             elif game_state == SETTINGS_MENU:
                 fs_btn, vol_btn, name_btn, back_btn = draw_settings_menu()
                 if fs_btn.collidepoint(pos):
@@ -1105,8 +1275,12 @@ while running:
             elif game_state == GAME_OVER:
                 restart_btn, exit_btn = draw_game_over()
                 if restart_btn.collidepoint(pos):
-                    grid = create_grid()
+                    current_level = 1
                     score = 0
+                    moves_left = levels.get_moves(1)
+                    for key in color_counters:
+                        color_counters[key] = 0
+                    grid = create_grid()
                     selected = None
                     animations = []
                     error_animations = []
@@ -1135,7 +1309,7 @@ while running:
                 if gear_open:
                     save_btn, menu_btn = draw_gear_button()
                     if save_btn and save_btn.collidepoint(pos):
-                        save_game(grid, score)
+                        save_game(grid, score, current_level, moves_left, color_counters)
                         running = False
                         continue
                     if menu_btn and menu_btn.collidepoint(pos):
@@ -1197,12 +1371,30 @@ while running:
         if not animations and not error_animations:
             matches = find_matches()
             if matches:
+                points = len(matches) * 2
+                score += points
+                moves_left -= 1
+                
+                # Подсчёт фишек для цветной цели
+                level_data = levels.get_level_data(current_level)
+                if level_data["type"] == "color":
+                    target_color = level_data["color"]
+                    for row, col in matches:
+                        if grid[row][col] == target_color:
+                            color_counters[target_color] += 1
+                
                 animations.append(RemoveAnimation(matches))
                 remove_matches(matches)
                 drop_info = drop_down()
                 if drop_info:
                     animations.append(DropAnimation(drop_info))
-                score += 1
+                
+                if check_level_complete():
+                    pass
+                
+                if moves_left <= 0 and game_state == PLAYING:
+                    game_state = GAME_OVER
+                    update_profile(score)
             elif not any(cell is not None for row in grid for cell in row):
                 game_state = GAME_OVER
                 update_profile(score)
@@ -1227,6 +1419,8 @@ while running:
         draw_exit_confirm()
     elif game_state == STATS:
         draw_stats_window()
+    elif game_state == LEVEL_COMPLETE or game_state == GAME_COMPLETE:
+        draw_level_complete()
     else:
         screen.fill(BLACK)
         bg = get_current_background()
@@ -1238,12 +1432,10 @@ while running:
         for anim in animations:
             anim.draw(screen)
         
-        score_text = font.render(f"Счёт: {score}", True, WHITE)
+        score_text = font.render(f"Очки: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
         
-        level_text = small_font.render(f"Ур. {profile['level']}", True, (200, 200, 100))
-        screen.blit(level_text, (WIDTH - 80, 10))
-        
+        draw_level_info()
         draw_gear_button()
         
         hint_text = small_font.render("F11 — полный экран", True, (100,100,100))
