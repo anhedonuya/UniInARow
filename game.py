@@ -203,28 +203,17 @@ RED = (200, 0, 0)
 BLUE = (0, 100, 255)
 YELLOW = (255, 255, 0)
 
-# --- РАСЧЁТ РАЗМЕРОВ ЯЧЕЙКИ И ПОЛЯ ---
+# --- РАЗМЕРЫ ПОЛЯ (УМЕНЬШЕННЫЕ) ---
 GRID_SIZE = 6
-
-def recalculate_sizes():
-    global CELL_SIZE, MARGIN, TOP_OFFSET
-    if fullscreen:
-        max_cell_width = (WIDTH - 40) // GRID_SIZE
-        max_cell_height = (HEIGHT - 160) // GRID_SIZE
-        CELL_SIZE = min(max_cell_width, max_cell_height, 120)
-        CELL_SIZE = max(CELL_SIZE, 50)
-        MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
-        TOP_OFFSET = (HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2 - 30
-    else:
-        CELL_SIZE = 70
-        MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
-        TOP_OFFSET = 80
-
-recalculate_sizes()
+CELL_SIZE = 50
+MARGIN = (WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
+TOP_OFFSET = 150
 
 # --- ЗАГРУЗКА ФОНОВ ---
 def load_backgrounds():
     bg = {}
+    
+    # Основной фон для меню и игры
     bg_path = "sprites/background.png"
     if os.path.exists(bg_path):
         try:
@@ -235,6 +224,7 @@ def load_backgrounds():
     else:
         bg["normal"] = None
     
+    # Фон для полноэкранного режима
     bg_full_path = "sprites/background_fullscreen.png"
     if os.path.exists(bg_full_path):
         try:
@@ -244,6 +234,17 @@ def load_backgrounds():
             bg["fullscreen"] = None
     else:
         bg["fullscreen"] = None
+    
+    # Общий фон для всех остальных экранов (уровни, админка, смена ника)
+    bg_common_path = "sprites/background_common.png"
+    if os.path.exists(bg_common_path):
+        try:
+            bg["common"] = pygame.image.load(bg_common_path).convert()
+            bg["common"] = pygame.transform.scale(bg["common"], (WIDTH, HEIGHT))
+        except:
+            bg["common"] = None
+    else:
+        bg["common"] = None
     
     return bg
 
@@ -255,6 +256,20 @@ def get_current_background():
     elif backgrounds["normal"]:
         return backgrounds["normal"]
     return None
+
+def get_common_background():
+    """Возвращает общий фон для всех вспомогательных экранов"""
+    if backgrounds["common"]:
+        return backgrounds["common"]
+    return None
+
+def draw_common_background():
+    """Рисует общий фон или чёрный экран, если фона нет"""
+    bg = get_common_background()
+    if bg:
+        screen.blit(bg, (0, 0))
+    else:
+        screen.fill(BLACK)
 
 # --- ЗАГРУЗКА МУЗЫКИ ---
 music_paths = ["sprites/menu_music.ogg", "sprites/menu_music.wav", "sounds/menu_music.ogg", "sounds/menu_music.wav"]
@@ -279,10 +294,10 @@ def load_sprites():
         path = f"sprites/uni_{color}.png"
         if os.path.exists(path):
             img = pygame.image.load(path).convert_alpha()
-            img = pygame.transform.scale(img, (CELL_SIZE - 10, CELL_SIZE - 10))
+            img = pygame.transform.scale(img, (CELL_SIZE - 8, CELL_SIZE - 8))
             sprites[color] = img
         else:
-            surf = pygame.Surface((CELL_SIZE - 10, CELL_SIZE - 10))
+            surf = pygame.Surface((CELL_SIZE - 8, CELL_SIZE - 8))
             surf.fill(pygame.Color(color))
             sprites[color] = surf
     return sprites
@@ -433,9 +448,7 @@ def draw_xp_bar():
     screen.blit(percent_text, (bar_x + bar_width + 10, bar_y - 2))
 
 def draw_stats_window():
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 200))
-    screen.blit(overlay, (0, 0))
+    draw_common_background()
     
     box_width, box_height = 400, 370
     box_x = (WIDTH - box_width) // 2
@@ -470,9 +483,7 @@ def draw_stats_window():
     return close_btn
 
 def draw_exit_confirm():
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 180))
-    screen.blit(overlay, (0, 0))
+    draw_common_background()
     
     box_width, box_height = 350, 150
     box_x = (WIDTH - box_width) // 2
@@ -495,13 +506,8 @@ def draw_exit_confirm():
     return yes_btn, no_btn
 
 def draw_update_notification():
-    screen.fill(BLACK)
-    bg = get_current_background()
-    if bg:
-        screen.blit(bg, (0, 0))
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 150))
-    screen.blit(overlay, (0, 0))
+    draw_common_background()
+    
     box_width, box_height = 400, 200
     box_x = (WIDTH - box_width) // 2
     box_y = (HEIGHT - box_height) // 2
@@ -578,30 +584,57 @@ def draw_gear_button():
     return None, None
 
 def draw_level_info():
-    """Рисует информацию об уровне с полоской прогресса и иконкой цели"""
+    """Рисует информацию об уровне вверху по центру с красивой рамкой"""
     if game_state != PLAYING:
         return
     
     level_data = levels.get_level_data(current_level)
     
-    # --- Текст цели ---
+    # --- Фон панели ---
+    panel_width = 400
+    panel_height = 100
+    panel_x = (WIDTH - panel_width) // 2
+    panel_y = 10
+    
+    # Полупрозрачный фон
+    panel_bg = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+    panel_bg.fill((0, 0, 0, 180))
+    screen.blit(panel_bg, (panel_x, panel_y))
+    pygame.draw.rect(screen, WHITE, (panel_x, panel_y, panel_width, panel_height), 2, border_radius=10)
+    
+    # --- Уровень ---
+    level_text = small_font.render(f"УРОВЕНЬ {current_level}", True, YELLOW)
+    screen.blit(level_text, (WIDTH//2 - level_text.get_width()//2, panel_y + 6))
+    
+    # --- Цель ---
     if level_data["type"] == "score":
         target_text = f"Цель: {level_data['target']} очков"
         current_value = score
         max_value = level_data["target"]
         remaining = max(0, max_value - current_value)
     else:
+        color_names = {
+            "blue": "синих",
+            "green": "зелёных",
+            "red": "красных",
+            "yellow": "жёлтых",
+            "purple": "фиолетовых"
+        }
+        color_name = color_names.get(level_data["color"], level_data["color"])
         current_value = color_counters.get(level_data["color"], 0)
         max_value = level_data["target"]
         remaining = max(0, max_value - current_value)
-        target_text = f"Цель: {level_data['target']} фишек"
+        target_text = f"Цель: {current_value}/{level_data['target']} {color_name} фишек"
+    
+    target_surf = small_font.render(target_text, True, (200, 200, 200))
+    screen.blit(target_surf, (WIDTH//2 - target_surf.get_width()//2, panel_y + 28))
     
     # --- Полоска прогресса ---
     progress = min(current_value / max_value, 1.0) if max_value > 0 else 0
-    bar_width = 200
+    bar_width = 340
     bar_height = 12
-    bar_x = WIDTH - bar_width - 10
-    bar_y = 40
+    bar_x = WIDTH//2 - bar_width//2
+    bar_y = panel_y + 50
     
     pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height), border_radius=6)
     if progress > 0:
@@ -612,23 +645,15 @@ def draw_level_info():
     percent_text = small_font.render(f"{int(progress * 100)}%", True, WHITE)
     screen.blit(percent_text, (bar_x + bar_width//2 - percent_text.get_width()//2, bar_y - 2))
     
-    # --- Информация об уровне ---
-    level_text = small_font.render(f"Уровень {current_level}", True, WHITE)
-    screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 8))
-    
-    # --- Цель ---
-    target_surf = small_font.render(target_text, True, (200, 200, 200))
-    screen.blit(target_surf, (WIDTH - target_surf.get_width() - 10, 24))
-    
-    # --- Иконка цели (только для цветных уровней) ---
+    # --- Иконка цели для цветных уровней ---
     if level_data["type"] == "color" and remaining > 0:
         target_color = level_data["color"]
         if target_color in sprites:
             icon = sprites[target_color]
-            icon_size = 28
+            icon_size = 24
             icon = pygame.transform.scale(icon, (icon_size, icon_size))
-            icon_x = WIDTH - 60
-            icon_y = 58
+            icon_x = WIDTH//2 + 50
+            icon_y = panel_y + 52
             screen.blit(icon, (icon_x, icon_y))
             
             # Цифра сколько осталось (под иконкой)
@@ -636,7 +661,6 @@ def draw_level_info():
             remaining_x = icon_x + icon_size//2 - remaining_text.get_width()//2
             screen.blit(remaining_text, (remaining_x, icon_y + icon_size + 2))
         else:
-            # Запасной вариант — цветной квадрат
             color_map = {
                 "blue": BLUE,
                 "green": GREEN,
@@ -645,29 +669,18 @@ def draw_level_info():
                 "purple": (128, 0, 128)
             }
             color = color_map.get(target_color, WHITE)
-            pygame.draw.rect(screen, color, (WIDTH - 60, 58, 28, 28))
+            pygame.draw.rect(screen, color, (WIDTH//2 + 50, panel_y + 52, 24, 24))
             remaining_text = small_font.render(str(remaining), True, WHITE)
-            remaining_x = WIDTH - 60 + 14 - remaining_text.get_width()//2
-            screen.blit(remaining_text, (remaining_x, 88))
-    
-    elif level_data["type"] == "score" and remaining > 0:
-        # Для очков — только текст
-        remaining_text = small_font.render(f"Осталось: {remaining} очков", True, (255, 255, 100))
-        screen.blit(remaining_text, (WIDTH - remaining_text.get_width() - 10, 58))
-    
-    elif remaining <= 0:
-        done_surf = small_font.render("✅ Цель достигнута!", True, (100, 255, 100))
-        screen.blit(done_surf, (WIDTH - done_surf.get_width() - 10, 58))
+            remaining_x = WIDTH//2 + 50 + 12 - remaining_text.get_width()//2
+            screen.blit(remaining_text, (remaining_x, panel_y + 80))
     
     # --- Ходы ---
     moves_text = small_font.render(f"Ходы: {moves_left}", True, (200, 200, 255))
-    screen.blit(moves_text, (WIDTH - moves_text.get_width() - 10, 86))
+    screen.blit(moves_text, (WIDTH//2 + 150, panel_y + 72))
 
 def draw_level_complete():
-    """Рисует экран завершения уровня"""
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 180))
-    screen.blit(overlay, (0, 0))
+    """Экран завершения уровня с общим фоном"""
+    draw_common_background()
     
     box_width, box_height = 400, 250
     box_x = (WIDTH - box_width) // 2
@@ -838,6 +851,7 @@ color_counters = {
     "yellow": 0,
     "purple": 0
 }
+max_level_unlocked = 1  # максимальный доступный уровень (для кнопки "Уровни")
 
 # --- ИГРОВОЕ ПОЛЕ ---
 def create_grid():
@@ -916,7 +930,7 @@ def draw_grid():
                 pygame.draw.rect(screen, WHITE, (x-3, y-3, CELL_SIZE+6, CELL_SIZE+6), 3)
 
 def check_level_complete():
-    global current_level, score, moves_left, grid, game_state, color_counters
+    global current_level, score, moves_left, grid, game_state, color_counters, max_level_unlocked
     level_data = levels.get_level_data(current_level)
     
     if level_data["type"] == "score":
@@ -929,12 +943,9 @@ def check_level_complete():
         if levels.is_last_level(current_level):
             game_state = GAME_COMPLETE
         else:
-            current_level = levels.next_level(current_level)
-            moves_left = levels.get_moves(current_level)
-            score = 0
-            for key in color_counters:
-                color_counters[key] = 0
-            grid = create_grid()
+            # Открываем следующий уровень
+            if current_level + 1 > max_level_unlocked:
+                max_level_unlocked = current_level + 1
             game_state = LEVEL_COMPLETE
         return True
     return False
@@ -1107,6 +1118,7 @@ EXIT_CONFIRM = 5
 STATS = 6
 LEVEL_COMPLETE = 7
 GAME_COMPLETE = 8
+LEVEL_SELECT = 9
 game_state = MENU
 
 recalculate_sizes()
@@ -1146,6 +1158,8 @@ while running:
                 elif game_state == STATS:
                     game_state = MENU
                 elif game_state == LEVEL_COMPLETE or game_state == GAME_COMPLETE:
+                    game_state = MENU
+                elif game_state == LEVEL_SELECT:
                     game_state = MENU
                 elif game_state == PLAYING:
                     if score > 0:
@@ -1260,6 +1274,13 @@ while running:
                     if game_state == GAME_COMPLETE:
                         game_state = MENU
                     else:
+                        # Переход на следующий уровень
+                        current_level += 1
+                        moves_left = levels.get_moves(current_level)
+                        score = 0
+                        for key in color_counters:
+                            color_counters[key] = 0
+                        grid = create_grid()
                         game_state = PLAYING
             
             elif game_state == SETTINGS_MENU:
@@ -1275,9 +1296,9 @@ while running:
             elif game_state == GAME_OVER:
                 restart_btn, exit_btn = draw_game_over()
                 if restart_btn.collidepoint(pos):
-                    current_level = 1
+                    # Перезапуск текущего уровня
+                    moves_left = levels.get_moves(current_level)
                     score = 0
-                    moves_left = levels.get_moves(1)
                     for key in color_counters:
                         color_counters[key] = 0
                     grid = create_grid()
@@ -1375,7 +1396,6 @@ while running:
                 score += points
                 moves_left -= 1
                 
-                # Подсчёт фишек для цветной цели
                 level_data = levels.get_level_data(current_level)
                 if level_data["type"] == "color":
                     target_color = level_data["color"]
@@ -1442,9 +1462,7 @@ while running:
         screen.blit(hint_text, (WIDTH - hint_text.get_width() - 10, HEIGHT - 30))
 
     if input_active:
-        input_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        input_surf.fill((0, 0, 0, 200))
-        screen.blit(input_surf, (0, 0))
+        draw_common_background()
         prompt = font.render("Введите имя:", True, WHITE)
         screen.blit(prompt, (WIDTH//2 - prompt.get_width()//2, HEIGHT//2 - 60))
         input_box = pygame.Rect(WIDTH//2 - 150, HEIGHT//2 - 20, 300, 40)
